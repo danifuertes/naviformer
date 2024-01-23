@@ -1,0 +1,235 @@
+import os
+import torch
+import pickle
+from tqdm import tqdm
+from torch.utils.data import Dataset
+
+from utils import load_dataset
+
+
+class NopDataset(Dataset):
+
+    def __init__(self, num_nodes=20, num_depots=1, max_length=2., max_nodes=0, max_obs=0, distribution='const',
+                 num_samples=1000000, offset=0, filename='', desc='', **kwargs):
+        super(NopDataset, self).__init__()
+
+        # Load dataset from file
+        if os.path.exists(filename):
+            assert os.path.splitext(filename)[1] == '.pkl' or os.path.isdir(filename), f"{filename} is not a valid path"
+
+            # Load file
+            with open(filename, 'rb') as f:
+                data = pickle.load(f)
+
+            # Load elements from file
+            elements = ['depot', 'loc', 'prize', 'max_length']
+            if num_depots > 1:
+                elements.append('depot2')
+            if max_obs:
+                elements.append('obs')
+            self.data = [
+                {
+                    element: torch.tensor(element_data[i]) if isinstance(element_data[i], float)
+                    else torch.FloatTensor(element_data[i])
+                    for i, element in enumerate(elements)
+                }
+                for element_data in tqdm(data[offset:offset + num_samples], desc=desc.ljust(15))
+            ]
+
+        # No file, so create new dataset
+        else:
+
+            # Parameters to generate instances
+            params = {
+                'num_nodes': num_nodes,
+                'data_dist': distribution,
+                'num_depots': num_depots,
+                'max_length': max_length,
+                'max_nodes': max_nodes,
+                'max_obs': max_obs,
+            }
+
+            # This manner of generating data is necessary when obstacles are generated
+            if max_obs:
+
+                # Create DataLoader to generate batches of data
+                from torch.utils.data import DataLoader
+                torch.multiprocessing.set_sharing_strategy('file_system')
+                batch_size, num_workers, self.data, count = 1024, 16, [], num_samples
+                dataloader = DataLoader(GenerateInstance(num_samples, **params), batch_size, num_workers=num_workers)
+
+                # Save batches into data list
+                for batch in tqdm(dataloader, desc=desc.ljust(15)):
+                    splits = {k: v.split(1, dim=0) for k, v in batch.items()}
+                    min_count = min(batch_size, count)
+                    for i in range(min_count):
+                        instance = {k: v[i].squeeze(0) for k, v in splits.items()}
+                        self.data.append(instance)
+                    count -= min_count
+
+            # Standard manner of generating data, simpler and faster (if no obstacles)
+            else:
+                self.data = [generate_instance(**params) for _ in tqdm(range(num_samples), desc=desc.ljust(15))]
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+
+class NopDatasetLarge(Dataset):
+
+    def __init__(self, filename=None, distribution='coop', num_depots=1, max_obs=0, **kwargs):
+        super(NopDatasetLarge, self).__init__()
+        assert distribution is not None, "Data distribution must be specified for OP"
+        assert os.path.splitext(filename)[1] == '.pkl' or os.path.isdir(filename)
+        assert os.path.isdir(filename)
+        self.filename = filename
+        self.num_depots = num_depots
+        self.max_obs = max_obs
+
+        print('Loading dataset...')
+        self.size = len(os.listdir(filename))
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        data = load_dataset(os.path.join(self.filename, str(idx).zfill(9)))
+        elements = ['depot', 'loc', 'prize', 'max_length']
+        if self.num_depots > 1:
+            elements.append('depot2')
+        if self.max_obs:
+            elements.append('obs')
+        return {element: torch.FloatTensor(data[i]) for i, element in enumerate(elements)}
+
+
+class GenerateInstance(Dataset):
+
+    def __init__(self, num_samples, num_nodes, data_dist, num_depots, max_length, max_obs, max_nodes):
+        super(GenerateInstance, self).__init__()
+        self.num_samples = num_samples
+        self.num_nodes = num_nodes
+        self.data_dist = data_dist
+        self.num_depots = num_depots
+        self.max_length = max_length
+        self.max_nodes = max_nodes
+        self.max_obs = max_obs
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, item):
+        return generate_instance(
+            num_nodes=self.num_nodes,
+            data_dist=self.data_dist,
+            num_depots=self.num_depots,
+            max_length=self.max_length,
+            max_nodes=self.max_nodes,
+            max_obs=self.max_obs
+        )
+
+
+def generate_instance(num_nodes, data_dist, num_depots=1, max_length=2., max_nodes=0, max_obs=0):
+
+    # Obstacles
+    obs = generate_obstacles(max_obs) if max_obs else None
+
+    # Regions (that do not collide with obstacles)
+    num_nodes = max_nodes if max_nodes else num_nodes
+    loc, depot, depot2 = generate_regions(num_nodes, num_depots=num_depots, obs=obs)
+
+    # Constant prizes (Fischetti et al. 1998)
+    if data_dist == 'const':
+        prize = torch.ones(num_nodes)
+
+    # Prizes sampled from uniform distribution (Fischetti et al. 1998)
+    elif data_dist == 'unif':
+        prize = (1 + torch.randint(0, 100, size=(num_nodes,))) / 100.
+
+    # Prizes grow with the distance to the end depot (Fischetti et al. 1998)
+    else:
+        assert data_dist == 'dist', f"'{data_dist}' not in data_dist list: ['const'. 'unif', 'dist']"
+        d = depot if depot2 is None else depot2
+        prize_ = (d[None, :] - loc).norm(p=2, dim=-1)
+        prize = (1 + (prize_ / prize_.max(dim=-1, keepdim=True)[0] * 99).int()).float() / 100.
+
+    # Generate problems with max_nodes, get only random subsets, and fill the rest with dummys
+    if max_nodes:
+        num_nodes = torch.randint(low=10, high=max_nodes + 1, size=(1,))[0]
+        loc[num_nodes:] = -1
+        prize[num_nodes:] = 0
+        max_length = (num_nodes + 60) / 40  # Simple linear regression: num_regions = 40 * max_length - 60
+    else:
+        max_length = torch.tensor(max_length)
+
+    # Output dataset
+    dictionary = {'loc': loc, 'prize': prize, 'depot': depot, 'max_length': max_length}
+
+    # End depot is different from start depot
+    if num_depots == 2:
+        dictionary['depot2'] = depot2
+
+    # Obstacles
+    if max_obs:
+        dictionary['obs'] = obs
+    return dictionary
+
+
+def generate_obstacles(max_obs=5, min_obs=0, r_max=0.2, r_min=0.05):
+
+    # Number of obstacles
+    num_obs = torch.randint(low=min_obs, high=max_obs + 1, size=[1])[0]
+
+    # Generate random obstacles (circles)
+    radius = torch.rand(num_obs) * (r_max - r_min) + r_min
+    center = torch.rand((num_obs, 2))
+    obstacles = torch.cat((center, radius[..., None]), dim=-1)
+
+    # Pad with (-1, -1, 0) where num_obstacles < max_obs
+    obstacles = torch.nn.functional.pad(
+        input=obstacles,
+        pad=(0, 0, 0, max_obs - obstacles.shape[0]),
+        mode='constant',
+        value=-1
+    )
+    obstacles[..., 2][obstacles[..., 2] == -1] = 0
+    return obstacles
+
+
+def generate_regions(num_nodes, num_depots=1, obs=None):
+    num_nodes = num_nodes + 1 if num_depots == 1 else num_nodes + 2
+
+    # No obstacles
+    if obs is None:
+        points = torch.FloatTensor(num_nodes, 2).uniform_(0, 1)
+
+    # Obstacles
+    else:
+        num_obs = obs.shape[0]
+        obs_center = obs[..., :2]
+        obs_radius = obs[..., 2]
+
+        # Meshgrid
+        grid_size = 64
+        x, y = torch.meshgrid(torch.linspace(0, 1, grid_size), torch.linspace(0, 1, grid_size), indexing="ij")
+        xy = torch.stack((x, y), dim=-1).expand([num_obs, grid_size, grid_size, 2])
+
+        # Calculate distance squared from each point of the meshgrid to each obstacle center
+        distances = (xy - obs_center[..., None, None, :]).norm(2, dim=-1)
+
+        # Create the masks by comparing distances with squared radius
+        mask = (distances > obs_radius[..., None, None] + 0.02).all(dim=0).T
+
+        # Generate non-colliding points
+        non_colliding_points = torch.nonzero(mask)
+        non_colliding_points = torch.stack((non_colliding_points[..., 1], non_colliding_points[..., 0]), dim=-1)
+        points = non_colliding_points[torch.randperm(non_colliding_points.shape[0])[:num_nodes]] / float(
+            grid_size - 1)
+
+    # Separate regions and depots
+    depot = points[0]
+    depot2 = points[1] if num_depots == 2 else None
+    loc = points[num_depots:]
+    return loc, depot, depot2
