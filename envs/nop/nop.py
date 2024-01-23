@@ -44,10 +44,10 @@ class NopRegions:
         self.regions = self.regions * (max_value - min_value) + min_value
 
     def is_depot_ini(self):
-        return self.depot_ini is None
+        return self.depot_ini is not None
 
     def is_depot_end(self):
-        return self.depot_end is None
+        return self.depot_end is not None
 
     def get_depot_ini(self):
         return self.depot_ini
@@ -108,7 +108,11 @@ class NopRegions:
 
 class NopEnv(gym.Env):
 
-    def __init__(self, batch_size=1024, num_workers=16, device=None, time_step=2e-2, baseline=None, *args, **kwargs):
+    def __init__(self, batch_size=1024, num_workers=16, device=None, time_step=2e-2, baseline=None, num_actions=4,
+                 *args, **kwargs):
+
+        # Number of actions / directions
+        self.num_actions = num_actions
 
         # Device
         self.device = device
@@ -234,13 +238,16 @@ class NopEnv(gym.Env):
         # Return state, reward, done, info
         state = {
             'i': self.i,
+            'regions': self.regions,
             'position': self.position,
             'visited': self.visited,
             'length': self.length,
             'is_traveling': self.is_traveling,
             'obs_bumped': self.obs_bumped,
             'mask_nodes': self.get_mask_nodes(),
-            'mask_actions': self.get_mask_actions()
+            'mask_actions': self.get_mask_actions(),
+            'prev_node': self.prev_node,
+            'prev_action': self.prev_action
         }
         return state, self.reward, self.finished().all(), None
 
@@ -298,13 +305,17 @@ class NopEnv(gym.Env):
         # Return state
         state = {
             'i': self.i,
+            'regions': self.regions,
             'position': self.position,
             'visited': self.visited,
             'length': self.length,
             'is_traveling': self.is_traveling,
             'obs_bumped': self.obs_bumped,
+            'dist2obs': self.get_dist2obs(),
             'mask_nodes': self.get_mask_nodes(),
             'mask_actions': self.get_mask_actions(),
+            'prev_node': self.prev_node,
+            'prev_action': self.prev_action,
             'inputs': batch
         }
         return state
@@ -359,14 +370,25 @@ class NopEnv(gym.Env):
         return mask
 
     def get_mask_actions(self):
-        mask = torch.zeros((*self.regions.get_regions().shape[:-2], None, 4))
-        mask[self.position[..., 0, 0] + self.time_step > 1, :, 0] = 1
-        mask[self.position[..., 0, 1] + self.time_step > 1, :, 1] = 1
-        mask[self.position[..., 0, 0] - self.time_step < 0, :, 2] = 1
-        mask[self.position[..., 0, 1] - self.time_step < 0, :, 3] = 1
-        if self.i.item() < 1:
+
+        # Initialize mask
+        mask = torch.zeros((self.regions.get_batch_size(), self.num_actions), dtype=torch.bool, device=self.device)
+
+        # Ban actions (directions) that lead out of the map | TODO: adapt for more than 4 actions
+        mask[self.position[..., 0] + self.time_step > 1, 0] = 1
+        mask[self.position[..., 1] + self.time_step > 1, 1] = 1
+        mask[self.position[..., 0] - self.time_step < 0, 2] = 1
+        mask[self.position[..., 1] - self.time_step < 0, 3] = 1
+
+        # No more restrictions are required during the first step, so return the mask
+        if self.i < 1:
             return mask.bool()
-        banned_actions = self.prev_action[:, :, None] + 4 / 2
-        banned_actions[banned_actions > 4 - 1] -= 4
+
+        # Avoid performing the action opposite to that performed before
+        banned_actions = self.prev_action[..., None] + self.num_actions / 2
+        banned_actions[banned_actions > self.num_actions - 1] -= self.num_actions
         mask = mask.scatter(-1, banned_actions.long(), 1)
         return mask.bool()
+
+    def get_dist2obs(self):
+        return (self.position[:, None] - self.obs[..., :2]).norm(dim=-1) - self.obs[..., 2]

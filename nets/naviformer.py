@@ -1,44 +1,24 @@
 import math
 import os.path
-
 from torch import nn
 from torch.utils.checkpoint import checkpoint
 
 # from utils.functions import sample_many, adapt_multi_nav, load_model
-# from utils.beam_search import CachedLookup
 
 from .modules import *
-# from utils import load_model
 
 
 def get_context(embeddings, state):
     """Returns the context per step, optionally for multiple steps at once (for efficient eval of the model)."""
 
-    # Get current node index
-    current_node = state.get_current_idx()
-
-    # Get dimensions
-    batch_size, num_steps = current_node.size()
-    emb_dim = embeddings.size(-1)
+    # Get current node index and expand it to (B x 1 x H) to allow gathering from embedding (B x N x H)
+    current_node = state['prev_node'].contiguous()[:, None, None].expand(-1, 1, embeddings.size(-1))
 
     # Get embedding of current node
-    last_node_embed = torch.gather(
-        embeddings,
-        1,
-        current_node.contiguous().view(batch_size, num_steps, 1).expand(batch_size, num_steps, emb_dim)
-    ).view(batch_size, num_steps, emb_dim)
+    last_node_embed = torch.gather(input=embeddings, dim=1, index=current_node)[:, 0]
 
-    # Get remaining time
-    remaining_time = state.get_remaining_length()[..., None]
-
-    # Get current coordinates
-    current_coords = state.get_current_coords()
-
-    # Get distance to obstacles
-    dist2obs = state.get_dist2obs()
-
-    # Return context (concatenate previously mentioned data)
-    return torch.cat((last_node_embed, remaining_time, current_coords, dist2obs), -1)
+    # Return context: (embedding of last node, remaining time/length, current position, distance to obstacles)
+    return torch.cat((last_node_embed, state['length'][..., None], state['position'], state['dist2obs']), dim=-1)
 
 
 class NaviFormer(nn.Module):
@@ -52,8 +32,6 @@ class NaviFormer(nn.Module):
                  num_heads=8,
                  num_blocks=2,
                  tanh_clipping=10.,
-                 mask_inner=True,
-                 mask_logits=True,
                  normalization='batch',
                  checkpoint_enc=False,
                  shrink_size=None,
@@ -89,10 +67,6 @@ class NaviFormer(nn.Module):
         self.shrink_size = shrink_size                   # Shrink batch size to decrease memory usage
         self.tanh_clipping = tanh_clipping               # Clip tanh values
 
-        # Mask parameters
-        self.mask_inner = mask_inner                     # Mask inner MHA values while decoding
-        self.mask_logits = mask_logits                   # Mask logit values while decoding
-
         # Last node embedding (embed_dim) + remaining length and current position (3) + number of obstacles (max_obs)
         step_context_dim = embed_dim + 3 + max_obs
 
@@ -126,16 +100,20 @@ class NaviFormer(nn.Module):
                 combined=combined_mha
             )
 
-        # Decoder embeddings for MHA: glimpse key, glimpse value, logit key (so 3 * embed_dim)
-        self.project_node_embeddings = nn.Linear(embed_dim, 3 * embed_dim, bias=False)
+        # Project graph embedding to get decoder embeddings for MHA: key, value, key_logit (so 3 * embed_dim)
+        self.project_graph = nn.Linear(embed_dim, 3 * embed_dim, bias=False)
 
-        # Decoder embedding for context
-        self.project_fixed_obs = nn.Linear(embed_dim, embed_dim, bias=False)
-        self.project_fixed_context = nn.Linear(embed_dim, embed_dim, bias=False)
-        self.project_step_context = nn.Linear(step_context_dim, embed_dim, bias=False)
+        # Project averaged graph embedding (across nodes) for state embedding
+        self.project_graph_mean = nn.Linear(embed_dim, embed_dim, bias=False)
+
+        # Project averaged obstacle embedding (across obstacles) for state embedding
+        self.project_obs_mean = nn.Linear(embed_dim, embed_dim, bias=False)
+
+        # Project state embedding
+        self.project_state = nn.Linear(step_context_dim, embed_dim, bias=False)
 
         # Projection for the result of inner MHA (num_heads * val_dim == embed_dim, so input is embed_dim)
-        self.project_out = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.project_mha = nn.Linear(embed_dim, embed_dim, bias=False)
 
         # Direction dimensions
         conv_dim = 4            # Convolution dimension
@@ -159,8 +137,8 @@ class NaviFormer(nn.Module):
             nn.Linear(hidden_dim, self.num_actions),
         )
 
-        # Initialize fixed embeddings (computed only during the first iteration)
-        self.fixed_embeddings = None
+        # Initialize fixed data (computed only during the first iteration)
+        self.fixed_data = None
 
     def set_decode_type(self, decode_type, temp=None):
         """Either greedy (exploitation) or sampling (exploration)."""
@@ -174,11 +152,11 @@ class NaviFormer(nn.Module):
         if 'inputs' in state:
             embeddings = self.encoder(state['inputs'])  # Transformer encoder
             obs = state['inputs']['obs'] if 'obs' in state['inputs'] else None
-            self.fixed_embeddings = self.precompute(embeddings, obs)
-        assert self.graph_embeddings is not None, "Graph embeddings are missing, make sure you use the encoder"
+            self.fixed_data = self.precompute(embeddings, obs)
+        assert self.fixed_data is not None, "Graph embeddings are missing, make sure you use the encoder"
 
         # Transformer decoder
-        logits_node, selected_node, logits_direction, selected_direction = self.decoder(self.fixed_embeddings, state)
+        logits_node, selected_node, logits_direction, selected_direction = self.decoder(state)
 
         # Return actions and logits
         actions = (selected_node, selected_direction)  # TODO: stack them
@@ -204,73 +182,6 @@ class NaviFormer(nn.Module):
         #     return cost, ll, pi
         # return cost, ll
 
-    def inner(self, inputs, embeddings):
-        """Transformer Decoder. Contrary to the Encoder, the Decoder is iteratively executed once per time step."""
-
-        # Initialize output probabilities and chosen indexes
-        out_nodes, out_directions, sequences = [[[] for _ in range(self.num_agents)] for _ in range(3)]
-
-        # Initialize problem state
-        states = [self.problem.make_state(inputs) for _ in range(self.num_agents)]
-
-        # Compute keys, values for the glimpse and keys for the logits once as they can be reused in every step
-        obs = inputs['obs'] if 'obs' in inputs else None
-        fixed = self.precompute(embeddings, obs)
-
-        # Batch dimension
-        batch_size = states[0].ids.size(0)
-
-        # Perform decoding steps
-        i = 0
-        while not (self.shrink_size is None and all([state.all_finished() for state in states]) and self.agent_id == 0):
-
-            if self.shrink_size is not None:
-                for s, state in enumerate(states):
-                    unfinished = torch.nonzero(state.get_finished() == 0)
-                    if len(unfinished) == 0:
-                        break
-                    unfinished = unfinished[:, 0]
-                    # Check if we can shrink by at least shrink_size and if this leaves at least 16
-                    # (otherwise batch norm will not work well, and it is inefficient anyway)
-                    if 16 <= len(unfinished) <= state.ids.size(0) - self.shrink_size:
-                        # Filter states
-                        states[s] = state[unfinished]
-                        fixed = fixed[unfinished]
-
-            # Get next state
-            state = states[self.agent_id]
-
-            # Share info between neighbors
-            other_states = [s for j, s in enumerate(states) if j != self.agent_id]  # All states except current
-            state = state.update_visited(other_states, limit=self.info_th)
-
-            # Transformer decoder
-            logits_node, selected_node, logits_direction, selected_direction = self.decoder(fixed, state)
-
-            # Update state
-            states[self.agent_id] = state.update(selected_node, selected_direction)
-            self.agent_id = self.agent_id + 1 if self.agent_id < self.num_agents - 1 else 0
-
-            # Now make log_p and selected desired output size by 'unshrinking'
-            if self.shrink_size is not None and state.ids.size(0) < batch_size:
-                logits_node_, selected_node_ = logits_node, selected_node
-                logits_node = logits_node_.new_zeros(batch_size, *logits_node_.size()[1:])
-                logits_node[state.ids[:, 0]] = logits_node_
-                selected_node = selected_node_.new_zeros(batch_size)
-                selected_node[state.ids[:, 0]] = selected_node_
-
-            # Collect output of step
-            out_nodes[self.agent_id].append(logits_node[:, 0, :])
-            out_directions[self.agent_id].append(logits_direction[:, 0, :])
-            sequences[self.agent_id].append(torch.stack((selected_node, selected_direction), dim=-1))
-            i += 1
-
-        # Collected lists, return Tensors (batch_size x length_tour x num_agents x num_actions)
-        out_nodes = torch.stack([torch.stack(output, dim=-1) for output in out_nodes], 1).permute(0, 3, 1, 2)
-        out_directions = torch.stack([torch.stack(output, dim=-1) for output in out_directions], 1).permute(0, 3, 1, 2)
-        sequences = torch.stack([torch.stack(sequence, dim=-1) for sequence in sequences], 1).permute(0, 3, 1, 2)
-        return out_nodes, out_directions, sequences, states
-
     def encoder(self, inputs):
 
         # Pre-trained (2-step) Transformer decoder
@@ -290,164 +201,184 @@ class NaviFormer(nn.Module):
         embeddings = (h[0], h[2]) if self.combined_mha else h[0]
         return embeddings
 
-    def precompute(self, embeddings, obs=None, num_steps=1):
+    def precompute(self, embeddings, obs=None):
         """Precompute Encoder embeddings."""
 
         # Pre-trained (2-step) Transformer encoder precompute
         if self.two_step:
-            fixed = self.base_route_model.precompute(embeddings, obs, map_info=(self.patch_size, self.map_size))
-            return fixed
+            return self.base_route_model.precompute(embeddings, obs, map_info=(self.patch_size, self.map_size))
 
-        # Embeddings for obstacles
+        # Obstacle embeddings
         if self.max_obs:
-            embeddings, obs_embeddings = embeddings
-            obs_embed = obs_embeddings.mean(1)  # TODO: ??? should be obs_embeddings.mean(1)
-            obs_embed = self.project_fixed_obs(obs_embed)[:, None, :]
+            graph_embedding, obs_embedding = embeddings
+
+            # Project averaged obstacle embedding (across obstacles) for state embedding
+            obs_embedding_mean = self.project_obs_mean(obs_embedding.mean(1))
+
+            # Create obstacle map for direction prediction
             obs_map, obs_grid = create_obs_map(obs, self.patch_size, self.map_size)
+            obs_data = (obs_embedding_mean, obs_map, obs_grid)
+
+        # No obstacles
         else:
-            obs_embed, obs_map, obs_grid = None, None, None
-        obs_data = (obs_embed, obs_map, obs_grid)
+            graph_embedding = embeddings
+            obs_data = (None, None, None)
 
-        # The fixed context projection of the graph embedding is calculated only once for efficiency
-        graph_embed = embeddings.mean(1)
-        fixed_context = self.project_fixed_context(graph_embed)[:, None, :]
+        # Project averaged graph embedding (across nodes) for state embedding
+        graph_embedding_mean = self.project_graph_mean(graph_embedding.mean(1))
 
-        # The projection of the node embeddings for the attention is calculated once up front
-        glimpse_key_fixed, glimpse_val_fixed, logit_key_fixed = \
-            self.project_node_embeddings(embeddings[:, None, :, :]).chunk(3, dim=-1)
+        # Project graph embedding for decoder
+        key, value, key_logit = self.project_graph(graph_embedding).chunk(3, dim=-1)
 
-        # No need to rearrange key for logit as there is a single head
-        fixed_attention_node_data = (
-            make_heads(self.num_heads, glimpse_key_fixed, num_steps),
-            make_heads(self.num_heads, glimpse_val_fixed, num_steps),
-            logit_key_fixed.contiguous()
+        # Multiple heads required for key and value during MHA operation. Not needed for key_logit during SHA operation
+        key_val_data = (
+            make_heads(self.num_heads, key),
+            make_heads(self.num_heads, value),
+            key_logit.contiguous()
         )
-        return AttentionModelFixed(embeddings, fixed_context, *fixed_attention_node_data, *obs_data)
+        return AttentionModelFixed(graph_embedding, graph_embedding_mean, *key_val_data, *obs_data)
 
-    def precompute_fixed(self, inputs):
-        """
-        Use a CachedLookup such that if we repeatedly index this object with the same index we only need to do the
-        lookup once... this is the case if all elements in the batch have maximum batch size.
-        """
-        if self.max_obs:
-            h1, _, h2, _ = self.embedder(self._init_embed(inputs), inputs['obs'])
-            embeddings = (h1, h2)
-        else:
-            embeddings = self.embedder(self._init_embed(inputs))[0]
-        return CachedLookup(self._precompute(embeddings, inputs['obs'] if 'obs' in inputs else None))
-
-    def decoder(self, fixed, state):
+    def decoder(self, state):
 
         # Pre-trained (2-step) Transformer decoder
-        # if self.two_step:
-        #     logits_node, selected_node = self.base_route_model.decoder(fixed, state)
-        #     selected_direction, logits_direction = self.predict_direction(state, selected_node, fixed)
-        #     return logits_node, selected_node, logits_direction, selected_direction
+        if self.two_step:
+            log_probs_node, selected_node = self.base_route_model.decoder(state)
 
-        # Predict probabilities for each node
-        logits_node, mask = self.get_logits(fixed, state)
-        probs_node = logits_node.exp()
-        logits_node_no_inf = logits_node.clone()
-        logits_node_no_inf[logits_node_no_inf == -math.inf] = 0
+        # Standard (1-step) decoding
+        else:
 
-        # Select the indices of the next nodes in the sequences, result (batch_size) long
-        selected_node = self.select_node(probs_node[:, 0], mask[:, 0])
+            # Predict log probabilities for each node
+            log_probs_node = self.get_log_probs(state)
+            probs_node = log_probs_node.exp()
+
+            # Select the indices of the next nodes in the sequences, result (batch_size) long
+            selected_node = self.select_node(probs_node, state['mask_nodes'])
 
         # Predict next action (direction from current position to next node to visit)
-        selected_direction, logits_direction = self.predict_direction(state, selected_node, fixed)
-        return logits_node, selected_node, logits_direction, selected_direction
+        selected_direction, log_probs_direction = self.predict_direction(state, selected_node)
+        return log_probs_node, selected_node, log_probs_direction, selected_direction
 
-    def get_logits(self, fixed, state, normalize=True):
-        """Predict node probabilities."""
+    def get_log_probs(self, state, normalize=True):
+        """Predict log probabilities."""
 
-        # Compute query = context node embedding
-        step_context = get_context(fixed.node_embeddings, state)
-        query = fixed.context_node_projected + self.project_step_context(step_context) + fixed.obs_embed
+        # Compute state_embedding
+        state_embedding = self.project_state(get_context(self.fixed_data.graph_embedding, state))
 
-        # Get keys and values for the decoder
-        glimpse_k, glimpse_v, logit_k = fixed.glimpse_key, fixed.glimpse_val, fixed.logit_key
+        # Compute the decoder's query from the state embedding
+        query = self.fixed_data.graph_embedding_mean + self.fixed_data.obs_embedding_mean + state_embedding
 
-        # Compute the mask
-        mask = state.get_mask()
-
-        # Compute logits (non-normalized log_p)
-        logits = self.mha_decoder(query, glimpse_k, glimpse_v, logit_k, mask, normalize=normalize)
-        return logits, mask
-
-    def mha_decoder(self, query, glimpse_k, glimpse_v, logit_k, mask, normalize=True):
-        """Multi-Head Attention (MHA) mechanism."""
-
-        # Dimensions
-        batch_size, num_steps, embed_dim = query.size()
-        key_size = val_size = embed_dim // self.num_heads
-
-        # Compute the glimpse, rearrange dimensions: (num_heads, batch_size, num_steps, 1, key_size)
-        glimpse_q = query.view(batch_size, num_steps, self.num_heads, 1, key_size).permute(2, 0, 1, 3, 4)
-        glimpse_k = glimpse_k.transpose(-2, -1)
-
-        # Batch matrix multiplication to compute compatibilities (num_heads, batch_size, num_steps, num_nodes)
-        compatibility = torch.matmul(glimpse_q, glimpse_k) / torch.sqrt(torch.tensor(glimpse_q.size(-1)))
-
-        # Ban nodes prohibited by the mask
-        if self.mask_inner:
-            assert self.mask_logits, "Cannot mask inner without masking logits"
-            compatibility[mask[None, :, :, None, :].expand_as(compatibility)] = -math.inf
-        compatibility = torch.softmax(compatibility, dim=-1)
-
-        # Batch matrix multiplication to compute heads (num_heads, batch_size, num_steps, val_size)
-        heads = torch.matmul(compatibility, glimpse_v)
-
-        # Project to get glimpse/updated context node embedding (batch_size, num_steps, embed_dim)
-        final_q = self.project_out(
-            heads.permute(1, 2, 3, 0, 4).contiguous().view(-1, num_steps, 1, self.num_heads * val_size)
+        # Apply MHA
+        query_logit = self.mha_decoder(
+            query=query,
+            key=self.fixed_data.key,
+            value=self.fixed_data.value,
+            mask=state['mask_nodes'],
         )
 
-        # Batch matrix multiplication to compute logits (batch_size, num_steps, num_nodes) -> logits = 'compatibility'
-        logit_k = logit_k.transpose(-2, -1)
-        logits = torch.matmul(final_q, logit_k).squeeze(-2) / torch.sqrt(torch.tensor(final_q.size(-1)))
+        # Apply SHA
+        log_probs = self.sha_decoder(
+            query_logit=query_logit,
+            key_logit=self.fixed_data.key_logit,
+            mask=state['mask_nodes'],
+            normalize=normalize
+        )
 
-        # From logits compute the log probabilities by clipping, masking and normalizing (softmax)
+        # Return log probabilities
+        return log_probs
+
+    def mha_decoder(self, query, key, value, mask):
+        """Multi-Head Attention (MHA) mechanism"""
+
+        # Dimensions
+        batch_size, embed_dim = query.size()
+        key_size = value_size = embed_dim // self.num_heads
+
+        # Rearrange query dimensions: (num_heads, batch_size, 1, key_size)
+        query = query.view(batch_size, self.num_heads, 1, key_size).permute(1, 0, 2, 3)
+
+        # Transpose key: (num_heads, batch_size, key_size, num_nodes)
+        key = key.transpose(-2, -1)
+
+        # Batch matrix multiplication to compute compatibilities: (num_heads, batch_size, 1, num_nodes)
+        compatibility = torch.matmul(query, key) / torch.sqrt(torch.tensor(embed_dim))
+
+        # Ban nodes prohibited by the mask
+        compatibility[mask[None, :, None].expand_as(compatibility)] = -math.inf
+
+        # Apply softmax
+        compatibility = torch.softmax(compatibility, dim=-1)
+
+        # Batch matrix multiplication with value to compute output: (num_heads, batch_size, 1, value_size)
+        output = torch.matmul(compatibility, value)
+
+        # Project to get glimpse/updated context node embedding: (batch_size, 1, embed_dim)
+        return self.project_mha(
+            output.permute(1, 2, 0, 3).contiguous().view(-1, 1, self.num_heads * value_size)
+        )
+
+    def sha_decoder(self, query_logit, key_logit, mask, normalize=True):
+        """Single-Head Attention (SHA) mechanism"""
+
+        # Embedding dimension
+        embed_dim = query_logit.size(-1)
+
+        # Transpose key
+        key_logit = key_logit.transpose(-2, -1)
+
+        # Batch matrix multiplication to compute logits: (batch_size, 1, num_nodes) -> logits = 'compatibility'
+        logits = torch.matmul(query_logit, key_logit) / torch.sqrt(torch.tensor(embed_dim))
+
+        # Remove extra dimension of size 1
+        logits = logits.squeeze(dim=1)
+
+        # Clip the logits (logits are non-normalized probabilities)
         if self.tanh_clipping > 0:
             logits = torch.tanh(logits) * self.tanh_clipping
-        if self.mask_logits:
-            logits[mask] = -math.inf
-        if normalize:
-            logits = torch.log_softmax(logits / self.temp, dim=-1)
-        assert not torch.isnan(logits).any(), "NaNs found in logits"
-        return logits
 
-    def predict_direction(self, state, next_node, fixed):
+        # Apply the mask to the logits
+        logits[mask] = -math.inf
+
+        # Normalize the logits (with log_softmax) to get log probabilities
+        if normalize:
+            log_probs = torch.log_softmax(logits / self.temp, dim=-1)
+
+        # Check log_probs are not NaN and return them
+        assert not torch.isnan(log_probs).any(), "NaNs found in logits"
+        return log_probs
+
+    def predict_direction(self, state, next_node):
         """Direction/Angle prediction."""
 
-        # Get current position
-        position = state.get_current_coords()
-
         # Get next selected goal
-        goal = state.get_coords(next_node[:, None])[:, 0]
+        goal = state['regions'].get_regions_by_index(next_node)
 
         # Get local maps
-        maps = create_local_maps(position, fixed.obs_map, fixed.obs_grid, goal, self.patch_size, self.map_size)
+        maps = create_local_maps(
+            state['position'], self.fixed_data.obs_map, self.fixed_data.obs_grid, goal, self.patch_size, self.map_size
+        )
 
         # Apply prediction layers
         policy = self.path_prediction(maps)
 
-        # Ban prohibited actions and normalize with softmax
-        policy[state.get_mask_actions(policy)[:, 0]] = -math.inf
-        prob = torch.softmax(policy, -1)
+        # Ban prohibited actions
+        policy[state['mask_actions']] = -math.inf
+
+        # Normalize policy with softmax
+        prob = torch.softmax(policy, dim=-1)
 
         # Get action
         if self.decode_type == "greedy":
-            _, action = prob.max(1)
+            _, action = prob.max(dim=1)
         elif self.decode_type == "sampling":
-            action = prob.multinomial(1)[:, 0]
+            action = prob.multinomial(num_samples=1).squeeze(dim=1)
         else:
             assert False, "Unknown decode type"
 
         # Get log probabilities
-        log_prob = torch.log_softmax(policy, -1)
+        log_prob = torch.log_softmax(policy, dim=-1)
 
         # Return action and log_probabilities
-        return action, log_prob[:, None]
+        return action, log_prob
 
     def sample_many(self, inputs, batch_rep=1, iter_rep=1):
         """
@@ -470,24 +401,23 @@ class NaviFormer(nn.Module):
 
     def select_node(self, probs, mask):
         """ArgMax or sample from probabilities to select next node."""
-        assert torch.eq(probs, probs).all(), "Probs should not contain any nans"
 
         # ArgMax (Exploitation)
         if self.decode_type == "greedy":
-            _, selected = probs.max(1)
+            _, selected = probs.max(dim=1)
             if mask is not None:
-                assert not mask.gather(1, selected.unsqueeze(-1)).data.any(), \
+                assert not mask.gather(dim=1, index=selected.unsqueeze(-1)).data.any(), \
                     "Decode greedy: infeasible action has maximum probability"
 
         # Sample (Exploration)
         elif self.decode_type == "sampling":
-            selected = probs.multinomial(1).squeeze(1)
+            selected = probs.multinomial(num_samples=1).squeeze(dim=1)
 
             # Sampling can fail due to GPU bug: https://discuss.pytorch.org/t/bad-behavior-of-multinomial-function/10232
             if mask is not None:
-                while mask.gather(1, selected.unsqueeze(-1)).data.any():
+                while mask.gather(dim=1, index=selected.unsqueeze(dim=-1)).data.any():
                     print('Sampled bad values, resampling!')
-                    selected = probs.multinomial(1).squeeze(1)
+                    selected = probs.multinomial(num_samples=1).squeeze(dim=1)
         else:
             assert False, "Unknown decode type"
         return selected

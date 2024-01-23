@@ -32,14 +32,9 @@ def input_embed(inputs, embed, embed_depot):
     return torch.cat(embeddings, dim=1)
 
 
-def make_heads(num_heads, v, num_steps=None):
+def make_heads(num_heads, v):
     """Create heads for Multi-Head Attention."""
-    assert num_steps is None or v.size(1) == 1 or v.size(1) == num_steps
-    return (
-        v.contiguous().view(v.size(0), v.size(1), v.size(2), num_heads, -1)
-        .expand(v.size(0), v.size(1) if num_steps is None else num_steps, v.size(2), num_heads, -1)
-        .permute(3, 0, 1, 2, 4)  # (num_heads, batch_size, num_steps, graph_size, head_dim)
-    )
+    return v.contiguous().view(v.size(0), v.size(1), num_heads, -1).permute(2, 0, 1, 3)  # (N_heads, B, N, H)
 
 
 class AttentionModelFixed(NamedTuple):
@@ -47,24 +42,24 @@ class AttentionModelFixed(NamedTuple):
     Context for AttentionModel decoder that is fixed during decoding so can be precomputed/cached
     This class allows for efficient indexing of multiple Tensors at once
     """
-    node_embeddings: torch.Tensor
-    context_node_projected: torch.Tensor
-    glimpse_key: torch.Tensor
-    glimpse_val: torch.Tensor
-    logit_key: torch.Tensor
-    obs_embed: torch.Tensor
+    graph_embedding: torch.Tensor
+    graph_embedding_mean: torch.Tensor
+    key: torch.Tensor
+    value: torch.Tensor
+    key_logit: torch.Tensor
+    obs_embedding_mean: torch.Tensor
     obs_map: torch.Tensor
     obs_grid: torch.Tensor
 
     def __getitem__(self, key):
         assert torch.is_tensor(key) or isinstance(key, slice)
         return AttentionModelFixed(
-            node_embeddings=self.node_embeddings[key],
-            context_node_projected=self.context_node_projected[key],
-            glimpse_key=self.glimpse_key[:, key],  # dim 0 are the heads
-            glimpse_val=self.glimpse_val[:, key],  # dim 0 are the heads
-            logit_key=self.logit_key[key],
-            obs_embed=self.obs_embed[key],
+            graph_embedding=self.graph_embedding[key],
+            graph_embedding_mean=self.graph_embedding_mean[key],
+            key=self.key[:, key],  # dim 0 are the heads
+            value=self.value[:, key],  # dim 0 are the heads
+            key_logit=self.key_logit[key],
+            obs_embedding_mean=self.obs_embedding_mean[key],
             obs_map=self.obs_map[key],
             obs_grid=self.obs_grid[key]
         )
@@ -117,9 +112,9 @@ def create_local_maps(pos, obs_map, obs_grid, goal, patch_size, map_size):
     map_y[map_y >= map_size] = map_size - 1
 
     # Get obstacles patches
-    offset_x = map_x[:, None] + obs_grid[..., 0]
-    offset_y = map_y[:, None] + obs_grid[..., 1]
-    patches = obs_map[torch.arange(obs_map.shape[0])[:, None, None], offset_y, offset_x].permute(0, 2, 1)
+    offset_x = map_x[:, None, None] + obs_grid[..., 0]
+    offset_y = map_y[:, None, None] + obs_grid[..., 1]
+    patches = obs_map[torch.arange(obs_map.size(0))[:, None, None], offset_y, offset_x].permute(0, 2, 1)
     north = patches[:, patch_size // 2:, :].permute(0, 2, 1)
     south = patches[:, :patch_size // 2, :].permute(0, 2, 1)
     west = patches[:, :, :patch_size // 2]
@@ -127,7 +122,6 @@ def create_local_maps(pos, obs_map, obs_grid, goal, patch_size, map_size):
     obs_patches = torch.stack((east, north, west, south), dim=1)
 
     # Get goal patches (project the position of the goal into the local map)
-    map_x, map_y = map_x[:, 0], map_y[:, 0]
     goal_x = torch.floor(goal[..., 0] * map_size).type(torch.long)
     condition = goal_x > map_x + patch_size // 2
     goal_x[condition] = map_x[condition] + patch_size // 2
