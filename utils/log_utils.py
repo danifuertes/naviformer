@@ -28,7 +28,7 @@ def config_logger(opts):
     return tb_logger
 
 
-def log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood, reinforce_loss, bl_loss, tb_logger, opts):
+def log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood, reinforce_loss, loss_bl, tb_logger, opts):
 
     # Get average cost
     avg_cost = cost.mean().item()
@@ -50,6 +50,6 @@ def log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood, reinforc
 
         # Log critic-related values to tensorboard
         if opts.baseline == 'critic':
-            tb_logger.log_value('critic_loss', bl_loss.item(), step)
+            tb_logger.log_value('critic_loss', loss_bl.item(), step)
             tb_logger.log_value('critic_grad_norm', grad_norms[1], step)
             tb_logger.log_value('critic_grad_norm_clipped', grad_norms_clipped[1], step)

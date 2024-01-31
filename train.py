@@ -1,3 +1,4 @@
+import copy
 import time
 import torch
 from tqdm import tqdm
@@ -5,7 +6,7 @@ from tqdm import tqdm
 from envs import load_problem
 from baselines import load_baseline
 from utils import config_logger, load_optimizer, load_lr_scheduler, resume_training, set_decode_type, \
-    get_inner_model, save_model, clip_grad_norms, log_values, get_options, validate, load_model_train
+    get_inner_model, save_model, clip_grad_norms, log_values, get_options, validate, load_model_train, episode
 
 
 def main(opts):
@@ -62,14 +63,6 @@ def main(opts):
             # Measure training time
             start_time = time.time()
 
-            # Steps (number of batches per epoch)
-            num_steps = opts.epoch_size // opts.batch_size
-            step = epoch * num_steps
-
-            # Tensorboard info
-            if opts.use_tensorboard:
-                tb_logger.log_value('learnrate_pg0', optimizer.param_groups[0]['lr'], step)
-
             # Load training data
             train_env = problem(
                 batch_size=opts.batch_size,
@@ -87,6 +80,13 @@ def main(opts):
                 desc='Train data'
             )
 
+            # Current step
+            step = epoch * train_env.num_steps
+
+            # Tensorboard info
+            if opts.use_tensorboard:
+                tb_logger.log_value('learnrate_pg0', optimizer.param_groups[0]['lr'], step)
+
             # Put model in train mode
             model.train()
             set_decode_type(model, "sampling")
@@ -99,41 +99,37 @@ def main(opts):
 
             # Train one epoch
             print("Start train epoch {}, lr={}".format(epoch, optimizer.param_groups[0]['lr']))
-            for batch_id in tqdm(range(num_steps), disable=not opts.use_progress_bar, desc='Training'.ljust(15)):
+            for batch_id in tqdm(range(train_env.num_steps), desc='Training'.ljust(15)):
 
                 # Initialize batch of scenarios
-                done = False
                 state = train_env.reset()
+                state_ini = copy.deepcopy(state)
 
-                # Iterate until each environment from the batch reaches a terminal state
-                while not done:
+                # Run episode
+                reward, log_prob, _ = episode(model, state, train_env)
 
-                    # Predict (log) probabilities for current state
-                    action, log_prob = model(state)
+                # Run baseline episode
+                reward_bl, loss_bl = baseline.eval(state_ini, reward, train_env)
 
-                    # Get reward and next state based on the action predicted
-                    state, reward, done, info = train_env.step(action)
+                # Calculate loss function
+                reinforce_loss = ((reward - reward_bl) * log_prob).mean()
+                loss = reinforce_loss + loss_bl
 
-                    bl_loss = 0  # TODO: consider baselines
-                    reinforce_loss = (reward * log_prob).mean()
-                    loss = reinforce_loss + bl_loss
+                # Perform backward pass
+                optimizer.zero_grad()
+                loss.backward()
 
-                    # Perform backward pass
-                    optimizer.zero_grad()
-                    loss.backward()
+                # Clip gradient norms and get (clipped) gradient norms for logging
+                grad_norms = clip_grad_norms(optimizer.param_groups, opts.max_grad_norm)
 
-                    # Clip gradient norms and get (clipped) gradient norms for logging
-                    grad_norms = clip_grad_norms(optimizer.param_groups, opts.max_grad_norm)
+                # Perform optimization step
+                optimizer.step()
 
-                    # Perform optimization step
-                    optimizer.step()
-
-                    # Logging
-                    if step % int(opts.log_step) == 0:
-                        log_values(
-                            reward, grad_norms, epoch, batch_id, step, log_prob, reinforce_loss, bl_loss,
-                            tb_logger, opts
-                        )
+                # Logging
+                if step % int(opts.log_step) == 0:
+                    log_values(
+                        reward, grad_norms, epoch, batch_id, step, log_prob, reinforce_loss, loss_bl, tb_logger, opts
+                    )
 
                 # Measure training time and report results
                 epoch_duration = time.time() - start_time

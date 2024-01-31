@@ -35,7 +35,6 @@ def get_options(args=None):
 
     # Agents
     parser.add_argument('--num_agents', type=int, default=1, help="Number of agents")
-    parser.add_argument('--info_th', type=float, default=0.2, help="Min dist among agents to share info (DecPOMDP)")
 
     # Data
     parser.add_argument('--epoch_size', type=int, default=1280000, help="Number of instances per epoch during training")
@@ -48,8 +47,7 @@ def get_options(args=None):
     parser.add_argument('--combined_mha', type=str2bool, default=True, help="Use combined/standard MHA encoder")
     parser.add_argument('--num_heads', type=int, default=8, help="Number of multi-heads for attention operations")
     parser.add_argument('--num_blocks', type=int, default=3, help="Number of blocks in the encoder/critic network")
-    parser.add_argument('--hidden_dim', type=int, default=128, help="Dimension of hidden layers in Enc/Dec")
-    parser.add_argument('--embed_dim', type=int, default=128, help="Dimension of input embedding")
+    parser.add_argument('--embed_dim', type=int, default=128, help="Dimension of embeddings")
     parser.add_argument('--normalization', default='batch', help="Normalization type, 'batch' or 'instance'")
     parser.add_argument('--tanh_clipping', type=float, default=10., help="Clip the parameters to within +- this value"
                         "using tanh. Set to 0 to not perform any clipping.")
@@ -93,7 +91,6 @@ def get_options(args=None):
     parser.add_argument('--resume', type=str, help="Resume from previous checkpoint file")
     parser.add_argument('--log_step', type=int, default=50, help="Log info every log_step steps")
     parser.add_argument('--use_tensorboard', type=str2bool, default=True, help="Log TensorBoard files")
-    parser.add_argument('--use_progress_bar', type=str2bool, default=True, help="Use progress bar")
     opts = parser.parse_args(args)
 
     # Number of nodes
@@ -130,7 +127,6 @@ def check_options(opts):
     assert opts.seed >= 0,              f"seed must be non-negative, found {opts.seed}"
     assert opts.problem,                f"'{opts.problem}' not in problem list: {PROBLEMS}"
     assert opts.num_agents > 0,         f"num_agents must be positive, found: {opts.num_agents}"
-    assert 0 <= opts.info_th <= 1,      f"info_th must be in range [0, 1], found: {opts.info_th}"
     assert opts.num_nodes > 0,          f"num_nodes must be positive, found: {opts.num_nodes}"
     assert opts.max_nodes >= 0,         f"max_nodes must be non-negative, found: {opts.max_nodes}"
     assert opts.num_depots in [1, 2],   f"num_depots must be 1 or 2, found: {opts.num_depots}"
@@ -141,7 +137,6 @@ def check_options(opts):
     assert opts.val_size > 0,           f"val_size must be positive, found: {opts.val_size}"
     assert opts.model in MODELS,        f"{opts.model} not in model list: {MODELS}"
     assert opts.num_blocks > 0,         f"num_blocks must be positive, found: {opts.num_blocks}"
-    assert opts.hidden_dim > 0,         f"hidden_dim must be positive, found: {opts.hidden_dim}"
     assert opts.embed_dim > 0,          f"embed_dim must be positive, found: {opts.embed_dim}"
     assert opts.normalization in NORM,  f"{opts.normalization} not in normalization list: {NORM}"
     assert opts.tanh_clipping >= 0,     f"tanh_clipping must be non-negative, found: {opts.tanh_clipping}"

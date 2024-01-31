@@ -11,7 +11,6 @@ class Critic(nn.Module):
         input_dim1,
         input_dim2,
         embed_dim,
-        hidden_dim,
         num_blocks,
         normalization,
         combined_mha=True
@@ -36,16 +35,17 @@ class Critic(nn.Module):
 
         # Critic value prediction
         self.value_head = nn.Sequential(
-            nn.Linear(embed_dim, hidden_dim),
+            nn.Linear(embed_dim, embed_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1)
+            nn.Linear(embed_dim, 1)
         )
 
-    def forward(self, inputs):
+    def forward(self, state):
+        assert 'inputs' in state, "Wrong input data for critic"
 
         # Initial embedding
-        x = input_embed(inputs, self.init_embed, self.embed_depot)
-        x = (x, inputs['obs']) if self.combined_mha else (x, None)
+        x = input_embed(state['inputs'], self.init_embed, self.embed_depot)
+        x = (x, state['inputs']['obs']) if self.combined_mha else (x, None)
 
         # Graph embedding (encoder)
         graph_embeddings = self.encoder(*x)

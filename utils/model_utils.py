@@ -63,16 +63,10 @@ def load_model_train(opts, problem, ensure_instance='', two_step=''):
     # Load model
     model = model_class(
         embed_dim=opts.embed_dim,
-        hidden_dim=opts.hidden_dim,
-        problem=problem,
         num_blocks=opts.num_blocks,
         normalization=opts.normalization,
         tanh_clipping=opts.tanh_clipping,
         checkpoint_encoder=opts.checkpoint_enc,
-        shrink_size=opts.shrink_size,
-        num_depots=opts.num_depots,
-        num_agents=opts.num_agents,
-        info_th=opts.info_th,
         max_obs=opts.max_obs,
         combined_mha=opts.combined_mha,
         two_step=opts.two_step
@@ -144,14 +138,11 @@ def load_model_eval(path, problem, epoch=None, kwargs=None, ensure_instance=''):
     kwargs = {} if kwargs is None else kwargs
     model = model_class(
         embed_dim=args['embed_dim'],
-        hidden_dim=args['hidden_dim'],
-        problem=problem,
         num_heads=args.get('num_heads', 8),
         num_blocks=args['num_blocks'],
         normalization=args['normalization'],
         tanh_clipping=args['tanh_clipping'],
         checkpoint_enc=args.get('checkpoint_enc', False),
-        shrink_size=args.get('shrink_size', None),
         combined_mha=args.get('combined_mha'),
         two_step=args.get('two_step', ''),
         **kwargs

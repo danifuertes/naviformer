@@ -72,26 +72,45 @@ def clip_grad_norms(param_groups, max_norm=np.inf):
     return grad_norms, grad_norms_clipped
 
 
-def rollout(model, dataset, opts, desc=''):
+def rollout(model, env, desc=''):
+
     # Put in greedy evaluation mode!
     set_decode_type(model, "greedy")
     model.eval()
 
-    def eval_model_bat(bat):
+    # Calculate rewards for each batch
+    rewards = []
+    for _ in tqdm(range(env.num_steps), desc=desc):
+        state, _ = env.reset()
         with torch.no_grad():
-            cost, _ = model(move_to(bat, opts.device))
-        return cost.data.cpu()
-
-    return torch.cat([
-        eval_model_bat(bat)
-        for bat in tqdm(
-            DataLoader(dataset, batch_size=opts.eval_batch_size), disable=not opts.use_progress_bar, desc=desc.ljust(15)
-        )
-    ], 0)
+            reward, _, _ = episode(model, state, env)
+        rewards.append(reward.data.cpu())
+    return torch.cat(rewards, dim=0)
 
 
-def validate(model, dataset, opts):
-    cost = rollout(model, dataset, opts, desc='Validating')
+def validate(model, env):
+    cost = rollout(model, env, desc='Validating')
     avg_cost = cost.mean()
     print(f"Validation overall avg_cost: {avg_cost} +- {torch.std(cost) / np.sqrt(len(cost))}")
     return avg_cost
+
+
+def episode(model, state, env):
+
+    # Iterate until each environment from the batch reaches a terminal state
+    done, total_reward, total_log_prob, actions = False, 0, 0, tuple()
+    while not done:
+
+        # Predict actions and (log) probabilities for current state
+        action, log_prob = model(state)
+
+        # Get reward and next state based on the action predicted
+        state, reward, done, info = env.step(action)
+
+        # Update info
+        actions = actions + (action, )
+        total_reward += reward
+        total_log_prob += log_prob
+
+    # Return reward and log probabilities
+    return total_reward, total_log_prob, torch.stack(actions, dim=1)

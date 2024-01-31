@@ -3,8 +3,6 @@ import os.path
 from torch import nn
 from torch.utils.checkpoint import checkpoint
 
-# from utils.functions import sample_many, adapt_multi_nav, load_model
-
 from .modules import *
 
 
@@ -24,36 +22,26 @@ def get_context(embeddings, state):
 class NaviFormer(nn.Module):
 
     def __init__(self,
-                 embed_dim,
-                 hidden_dim,
-                 problem,
+                 embed_dim=128,
                  combined_mha=True,
                  two_step='',
+                 max_obs=0,
                  num_heads=8,
                  num_blocks=2,
                  tanh_clipping=10.,
                  normalization='batch',
                  checkpoint_enc=False,
-                 shrink_size=None,
-                 num_depots=1,
-                 num_agents=1,
-                 info_th=0.2,
-                 max_obs=0,
                  **kwargs):
         super(NaviFormer, self).__init__()
-        assert embed_dim % num_heads == 0
+        assert embed_dim % num_heads == 0, f"Embedding dimension should be dividable by number of heads, " \
+                                           f"found embed_dim={embed_dim} and num_heads={num_heads}"
 
         # Problem parameters
-        self.num_agents = num_agents                     # Number of agents
-        self.num_depots = num_depots                     # Number of depots
         self.max_obs = max_obs                           # Maximum number of obstacles
-        self.problem = problem                           # Type of problem to solve
         self.agent_id = 0                                # Agent ID (for decentralized multiagent problem)
-        self.info_th = info_th                           # Communication distance (for decentralized multiagent problem)
 
         # Dimensions
         self.embed_dim = embed_dim                       # Dimension of embeddings
-        self.hidden_dim = hidden_dim                     # Dimension of hidden layers
 
         # Encoder parameters
         self.combined_mha = combined_mha                 # Use combined/standard MHA encoder
@@ -64,7 +52,6 @@ class NaviFormer(nn.Module):
         # Decoder parameters
         self.temp = 1.0                                  # SoftMax temperature parameter
         self.decode_type = None                          # Greedy or sampling
-        self.shrink_size = shrink_size                   # Shrink batch size to decrease memory usage
         self.tanh_clipping = tanh_clipping               # Clip tanh values
 
         # Last node embedding (embed_dim) + remaining length and current position (3) + number of obstacles (max_obs)
@@ -95,7 +82,7 @@ class NaviFormer(nn.Module):
                 num_heads=num_heads,
                 embed_dim=embed_dim,
                 node_dim2=3 if max_obs > 0 else None,  # Obstacles (circles): x_center, y_center, radius
-                num_blocks=self.num_blocks,
+                num_blocks=num_blocks,
                 normalization=normalization,
                 combined=combined_mha
             )
@@ -131,10 +118,10 @@ class NaviFormer(nn.Module):
             nn.ReLU(),
             nn.BatchNorm2d(conv_dim, affine=True),
             nn.Flatten(),
-            nn.Linear(conv_dim * self.patch_size * self.patch_size // 2, hidden_dim),
+            nn.Linear(conv_dim * self.patch_size * self.patch_size // 2, embed_dim),
             nn.ReLU(),
-            (nn.BatchNorm1d if normalization == 'batch' else nn.InstanceNorm1d)(hidden_dim, affine=True),
-            nn.Linear(hidden_dim, self.num_actions),
+            (nn.BatchNorm1d if normalization == 'batch' else nn.InstanceNorm1d)(embed_dim, affine=True),
+            nn.Linear(embed_dim, self.num_actions),
         )
 
         # Initialize fixed data (computed only during the first iteration)
@@ -156,31 +143,18 @@ class NaviFormer(nn.Module):
         assert self.fixed_data is not None, "Graph embeddings are missing, make sure you use the encoder"
 
         # Transformer decoder
-        logits_node, selected_node, logits_direction, selected_direction = self.decoder(state)
+        log_probs_node, selected_node, log_probs_direction, selected_direction = self.decoder(state)
 
-        # Return actions and logits
-        actions = (selected_node, selected_direction)  # TODO: stack them
-        logits = self.combine_logits(logits_node, logits_direction)
-        return actions, logits
+        # Combine actions in one tensor
+        actions = torch.stack((selected_node, selected_direction), dim=1)
 
-    def combine_logits(self, logits_nodes, logits_directions):  # TODO: use calc_log_likelihood to combine both
-        return logits_nodes + logits_directions
+        # Combine log probabilities in one tensor
+        log_prob_node = self.select_log_probs(log_probs_node, selected_node)
+        log_prob_direction = self.select_log_probs(log_probs_direction, selected_direction)
+        log_prob = self.combine_log_probs(log_prob_node, log_prob_direction)
 
-
-        # # Calculate costs based on the predictions made
-        # cost, mask = self.problem.get_costs(states)
-        #
-        # # Log likelihood computed here since it can be of different lengths, which may cause problems with DataParallel
-        # ll_nodes = self.calc_log_likelihood(logits_nodes, pi[..., 0].type(torch.int64), mask)
-        # ll_actions = self.calc_log_likelihood(logits_actions, pi[..., 1].type(torch.int64), mask)
-        #
-        # # Adapt multi-agent case
-        # ll, cost = adapt_multi_nav(ll_nodes, cost, ll_actions)
-        #
-        # # Return costs, log likelihood and predictions
-        # if return_pi:
-        #     return cost, ll, pi
-        # return cost, ll
+        # Return actions and log probabilities
+        return actions, log_prob
 
     def encoder(self, inputs):
 
@@ -248,17 +222,17 @@ class NaviFormer(nn.Module):
         else:
 
             # Predict log probabilities for each node
-            log_probs_node = self.get_log_probs(state)
-            probs_node = log_probs_node.exp()
+            log_probs_node = self.predict_node(state)
 
             # Select the indices of the next nodes in the sequences, result (batch_size) long
-            selected_node = self.select_node(probs_node, state['mask_nodes'])
+            selected_node = self.select_node(log_probs_node.exp(), state['mask_nodes'])
 
         # Predict next action (direction from current position to next node to visit)
-        selected_direction, log_probs_direction = self.predict_direction(state, selected_node)
+        log_probs_direction = self.predict_direction(state, selected_node)
+        selected_direction = self.select_direction(log_probs_direction.exp())
         return log_probs_node, selected_node, log_probs_direction, selected_direction
 
-    def get_log_probs(self, state, normalize=True):
+    def predict_node(self, state, normalize=True):
         """Predict log probabilities."""
 
         # Compute state_embedding
@@ -346,59 +320,6 @@ class NaviFormer(nn.Module):
         assert not torch.isnan(log_probs).any(), "NaNs found in logits"
         return log_probs
 
-    def predict_direction(self, state, next_node):
-        """Direction/Angle prediction."""
-
-        # Get next selected goal
-        goal = state['regions'].get_regions_by_index(next_node)
-
-        # Get local maps
-        maps = create_local_maps(
-            state['position'], self.fixed_data.obs_map, self.fixed_data.obs_grid, goal, self.patch_size, self.map_size
-        )
-
-        # Apply prediction layers
-        policy = self.path_prediction(maps)
-
-        # Ban prohibited actions
-        policy[state['mask_actions']] = -math.inf
-
-        # Normalize policy with softmax
-        prob = torch.softmax(policy, dim=-1)
-
-        # Get action
-        if self.decode_type == "greedy":
-            _, action = prob.max(dim=1)
-        elif self.decode_type == "sampling":
-            action = prob.multinomial(num_samples=1).squeeze(dim=1)
-        else:
-            assert False, "Unknown decode type"
-
-        # Get log probabilities
-        log_prob = torch.log_softmax(policy, dim=-1)
-
-        # Return action and log_probabilities
-        return action, log_prob
-
-    def sample_many(self, inputs, batch_rep=1, iter_rep=1):
-        """
-        A bit ugly, but we need to pass the embeddings as well. Making a tuple will not work with the problem.get_cost
-        function.
-        """
-        h = self.encoder(inputs)
-        return sample_many(
-
-            # Need to unpack tuple into arguments
-            lambda inp: self.inner(*inp),
-
-            # Don't need embeddings as input to get_costs
-            lambda cost: self.problem.get_costs(cost),
-
-            # Pack input with embeddings (additional input)
-            (inputs, h),
-            batch_rep, iter_rep, self.max_obs
-        )
-
     def select_node(self, probs, mask):
         """ArgMax or sample from probabilities to select next node."""
 
@@ -422,21 +343,47 @@ class NaviFormer(nn.Module):
             assert False, "Unknown decode type"
         return selected
 
-    def calc_log_likelihood(self, _log_p_nodes, nodes, mask):
+    def predict_direction(self, state, next_node):
+        """Direction/Angle prediction."""
+
+        # Get next selected goal
+        goal = state['regions'].get_regions_by_index(next_node)
+
+        # Get local maps
+        maps = create_local_maps(
+            state['position'], self.fixed_data.obs_map, self.fixed_data.obs_grid, goal, self.patch_size, self.map_size
+        )
+
+        # Apply prediction layers
+        policy = self.path_prediction(maps)
+
+        # Ban prohibited actions
+        policy[state['mask_actions']] = -math.inf
+
+        # Return normalized (softmax) log probabilities
+        log_probs = torch.log_softmax(policy, dim=-1)
+        return log_probs
+
+    def select_direction(self, probs):
+
+        # ArgMax (Exploitation)
+        if self.decode_type == "greedy":
+            _, action = probs.max(dim=1)
+
+        # Sample (Exploration)
+        elif self.decode_type == "sampling":
+            action = probs.multinomial(num_samples=1).squeeze(dim=1)
+        else:
+            assert False, "Unknown decode type"
+        return action
+
+    @staticmethod
+    def select_log_probs(log_probs, selected):
         """Calculate log likelihood for loss function."""
+        log_prob = log_probs.gather(1, selected[..., None])[..., 0]
+        assert (log_prob > -1000).data.all(), "Log probabilities should not be -inf, check sampling procedure!"
+        return log_prob
 
-        # Get log probabilities corresponding to selected nodes
-        log_p_nodes = []
-        for k in range(self.num_agents):
-            log_p_nodes.append(_log_p_nodes[..., k, :].gather(2, nodes[..., k, None]).squeeze(-1))
-
-            # Optional: mask out actions irrelevant to objective, so they do not get reinforced
-            if mask is not None:
-                log_p_nodes[-1][mask] = 0
-            assert (log_p_nodes[-1] > -1000).data.all(), "Log probs should not be -inf, check sampling procedure!"
-
-        # Calculate log_likelihood
-        ll_nodes = torch.stack(log_p_nodes, dim=-1)
-        num_nonzero = torch.count_nonzero(ll_nodes, 1)
-        num_nonzero[num_nonzero == 0] = 1
-        return ll_nodes.sum(1) / num_nonzero
+    @staticmethod
+    def combine_log_probs(log_probs_node, log_probs_direction):
+        return (log_probs_node + log_probs_direction) / 2

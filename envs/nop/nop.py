@@ -74,8 +74,11 @@ class NopRegions:
             return torch.cat((self.prizes, torch.zeros_like(self.depot_end[:, None])), axis=-2)
         else:
             return torch.cat(
-                (torch.zeros_like(self.depot_ini[:, None]), self.prizes, torch.zeros_like(self.depot_end[:, None])),
-                axis=-2
+                (
+                    torch.zeros_like(self.depot_ini[:, 0, None]),
+                    self.prizes,
+                    torch.zeros_like(self.depot_end[:, 0, None])
+                ), axis=-1
             )
 
     def get_batch_size(self):
@@ -120,11 +123,15 @@ class NopEnv(gym.Env):
         # Problem name
         self.name = 'nop'
 
+        # Baseline
+        self.baseline = baseline
+
         # Data
         dataset = NopDataset(*args, **kwargs)
-        if baseline is not None:
-            dataset = baseline.wrap_dataset(dataset)
         self.dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
+
+        # Steps (number of batches per epoch)
+        self.num_steps = len(dataset) // batch_size
 
         # Initialize scenario
         self.regions = None
@@ -152,19 +159,19 @@ class NopEnv(gym.Env):
     def step(self, action):
 
         # Not finished flag (terminal states are: time out, reach end depot, bump obstacle)
-        nf = ~self.finished()[:, 0]
+        nf = ~self.finished()
 
         # Action = (Next node to visit, Next action/direction to follow)
-        next_node_idx = action[0][..., None]
-        next_action = action[1][..., None]
+        next_node_idx = action[..., 0]
+        next_action = action[..., 1]
 
         # Update next position
         polar = torch.polar(
-            torch.zeros_like(self.position[:, 0, 0]) + torch.tensor(self.time_step),
-            next_action[:, 0] * 2 * torch.pi / 4
+            torch.zeros_like(self.position[:, 0]) + torch.tensor(self.time_step),
+            next_action * 2 * torch.pi / 4
         )
         new_position = self.position.clone()
-        new_position[nf] = self.position[nf] + torch.stack((polar.real, polar.imag), -1)[:, None][nf]
+        new_position[nf] = self.position[nf] + torch.stack((polar.real, polar.imag), -1)[nf]
 
         # Update length of route
         self.length = self.length + (new_position - self.position).norm(p=2, dim=-1)
@@ -172,7 +179,7 @@ class NopEnv(gym.Env):
 
         # Distance to next node
         next_node_coords = self.regions.get_regions_by_index(next_node_idx)
-        dist2next = (new_position - next_node_coords).norm(p=2, dim=-1)[:, 0]
+        dist2next = (new_position - next_node_coords).norm(p=2, dim=-1)
 
         # Check whether the agent has just arrived to next node or it is still traveling
         self.is_traveling[dist2next > self.time_step] = True    # Traveling
@@ -180,7 +187,7 @@ class NopEnv(gym.Env):
         self.is_traveling[~nf] = False                          # Once on terminal state, do not travel
 
         # Mask visited regions
-        self.visited = self.visited.scatter(-1, next_node_idx[:, :, None], 1)
+        self.visited = self.visited.scatter(-1, next_node_idx[..., None], 1)
 
         # Reward: visiting next node
         condition = torch.logical_and(
@@ -189,18 +196,18 @@ class NopEnv(gym.Env):
         )
         self.reward[condition] += 60 * self.regions.get_prize_by_index(next_node_idx)[condition] / (
                 (self.regions.get_regions()[..., 0] >= 0).sum(1) - 2
-        )[condition, None]
+        )[condition]
 
         # Penalty: distance to next node
-        self.reward[nf] -= dist2next[:, None][nf] * 0.3
+        self.reward[nf] -= dist2next[nf] * 0.3
 
         # Reward: reaching end depot within time limit
         end_idx = self.regions.get_end_idx()
         dist2end = (new_position - self.regions.get_regions_by_index(end_idx)).norm(p=2, dim=-1)
         condition = torch.logical_and(
             torch.logical_and(
-                torch.eq(next_node_idx[:, 0], end_idx),         # Next node == end depot
-                (dist2end <= self.time_step)[:, 0]              # End depot visited
+                torch.eq(next_node_idx, end_idx),               # Next node == end depot
+                (dist2end <= self.time_step)                    # End depot visited
             ),
             nf                                                  # Not finished
         )
@@ -209,8 +216,8 @@ class NopEnv(gym.Env):
         # Penalty: not reaching end depot within time limit
         condition = torch.logical_and(
             torch.logical_and(
-                (self.max_length - self.length < 0)[:, 0],      # Time limit is surpassed
-                (dist2end > self.time_step)[:, 0]               # End depot not visited
+                (self.max_length - self.length < 0),            # Time limit is surpassed
+                (dist2end > self.time_step)                     # End depot not visited
             ),
             nf                                                  # Not finished
         )
@@ -221,7 +228,7 @@ class NopEnv(gym.Env):
             self.obs_bumped[
                 torch.ge(
                     self.obs[..., 2],
-                    (new_position - self.obs[..., :2]).norm(p=2, dim=-1)
+                    (new_position[:, None] - self.obs[..., :2]).norm(p=2, dim=-1)
                 ).any(dim=-1)
             ] = True                                            # obs_bumped = 1 if agent is inside obstacle
             condition = torch.logical_and(
@@ -249,13 +256,19 @@ class NopEnv(gym.Env):
             'prev_node': self.prev_node,
             'prev_action': self.prev_action
         }
-        return state, self.reward, self.finished().all(), None
+        return state, -self.reward, self.finished().all(), None  # Return negative reward since we want to minimize
 
     def reset(self, **kwargs):
 
-        # Load data
-        batch = next(iter(self.dataloader))  # TODO: consider baselines
+        # Load data on device
+        batch = next(iter(self.dataloader))
         batch = move_to(batch, self.device)
+
+        # Return initial state
+        state = self.get_state_from_batch(batch)
+        return state
+
+    def get_state_from_batch(self, batch):
 
         # Regions
         self.regions = NopRegions(
@@ -319,9 +332,6 @@ class NopEnv(gym.Env):
             'inputs': batch
         }
         return state
-
-    def render(self):
-        return
 
     def finished(self):
 
@@ -392,3 +402,6 @@ class NopEnv(gym.Env):
 
     def get_dist2obs(self):
         return (self.position[:, None] - self.obs[..., :2]).norm(dim=-1) - self.obs[..., 2]
+
+    def render(self):
+        return
