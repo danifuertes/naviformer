@@ -150,13 +150,10 @@ class NopEnv(gym.Env):
         self.prev_node = None
         self.prev_action = None
 
-        # Initialize reward
-        self.reward = torch.zeros(batch_size, 1, device=device)
-
         # Time step
         self.time_step = time_step
 
-    def step(self, action):
+    def step(self, action, fixed_data=None):
 
         # Not finished flag (terminal states are: time out, reach end depot, bump obstacle)
         nf = ~self.finished()
@@ -189,17 +186,20 @@ class NopEnv(gym.Env):
         # Mask visited regions
         self.visited = self.visited.scatter(-1, next_node_idx[..., None], 1)
 
+        # Reward
+        reward = torch.zeros(nf.shape[0], device=self.device)
+
         # Reward: visiting next node
         condition = torch.logical_and(
             torch.logical_and(~self.is_traveling, nf),          # Agent is not traveling and has not finished yet
             dist2next <= self.time_step                         # Next node is visited
         )
-        self.reward[condition] += 60 * self.regions.get_prize_by_index(next_node_idx)[condition] / (
+        reward[condition] += 60 * self.regions.get_prize_by_index(next_node_idx)[condition] / (
                 (self.regions.get_regions()[..., 0] >= 0).sum(1) - 2
         )[condition]
 
         # Penalty: distance to next node
-        self.reward[nf] -= dist2next[nf] * 0.3
+        reward[nf] -= dist2next[nf] * 0.3
 
         # Reward: reaching end depot within time limit
         end_idx = self.regions.get_end_idx()
@@ -211,7 +211,7 @@ class NopEnv(gym.Env):
             ),
             nf                                                  # Not finished
         )
-        self.reward[condition] = self.reward[condition] + 20
+        reward[condition] = reward[condition] + 20
 
         # Penalty: not reaching end depot within time limit
         condition = torch.logical_and(
@@ -221,7 +221,7 @@ class NopEnv(gym.Env):
             ),
             nf                                                  # Not finished
         )
-        self.reward[condition] = self.reward[condition] - 5
+        reward[condition] = reward[condition] - 5
 
         # Penalty: bumping into obstacles
         if self.obs is not None:
@@ -235,7 +235,7 @@ class NopEnv(gym.Env):
                 self.obs_bumped,                                # Bumped into obstacle
                 nf                                              # Not finished
             )
-            self.reward[condition] = self.reward[condition] - 5
+            reward[condition] = reward[condition] - 5
 
         # Update state
         self.position = new_position
@@ -243,20 +243,23 @@ class NopEnv(gym.Env):
         self.prev_action = next_action
 
         # Return state, reward, done, info
+        self.i += 1
         state = {
             'i': self.i,
-            'regions': self.regions,
+            'regions': self.regions.get_regions(),
             'position': self.position,
             'visited': self.visited,
             'length': self.length,
             'is_traveling': self.is_traveling,
             'obs_bumped': self.obs_bumped,
+            'dist2obs': self.get_dist2obs(),
             'mask_nodes': self.get_mask_nodes(),
             'mask_actions': self.get_mask_actions(),
             'prev_node': self.prev_node,
-            'prev_action': self.prev_action
+            'prev_action': self.prev_action,
+            'inputs': fixed_data
         }
-        return state, -self.reward, self.finished().all(), None  # Return negative reward since we want to minimize
+        return state, -reward, self.finished().all().item(), None  # Negative reward since torch always minimizes
 
     def reset(self, **kwargs):
 
@@ -309,16 +312,13 @@ class NopEnv(gym.Env):
         # Traveled length
         self.length = torch.zeros(batch_size, device=self.device)
 
-        # Reward
-        self.reward = torch.zeros(batch_size, device=self.device)
-
         # Misc
         self.is_traveling = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
 
         # Return state
         state = {
             'i': self.i,
-            'regions': self.regions,
+            'regions': self.regions.get_regions(),
             'position': self.position,
             'visited': self.visited,
             'length': self.length,
@@ -359,6 +359,7 @@ class NopEnv(gym.Env):
         capacity. 0 = feasible, 1 = infeasible. Forbids to visit depot twice in a row, unless all nodes have been
         visited.
         """
+        batch_ids = torch.arange(self.regions.get_batch_size(), dtype=torch.int64, device=self.device)
         end_idx = self.regions.get_end_idx()
 
         # Define mask (with visited nodes)
@@ -370,7 +371,7 @@ class NopEnv(gym.Env):
 
         # While traveling, do not change agent's mind
         mask[self.is_traveling] = 1  # Comment this line to allow changing agent's mind (careful with lengths then)
-        mask[self.is_traveling][self.prev_node[self.is_traveling]] = 0
+        mask[batch_ids[self.is_traveling], self.prev_node[self.is_traveling]] = 0
 
         # End depot can always be visited, but once visited, cannot leave the place
         mask[~self.is_traveling, end_idx] = 0

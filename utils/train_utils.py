@@ -2,7 +2,6 @@ import os
 import torch
 import numpy as np
 from tqdm import tqdm
-from torch.utils.data import DataLoader
 
 
 def move_to(var, device):
@@ -102,10 +101,10 @@ def episode(model, state, env):
     while not done:
 
         # Predict actions and (log) probabilities for current state
-        action, log_prob = model(state)
+        action, log_prob, fixed_data = model(state, return_fixed=True)
 
         # Get reward and next state based on the action predicted
-        state, reward, done, info = env.step(action)
+        state, reward, done, info = env.step(action, fixed_data=fixed_data)
 
         # Update info
         actions = actions + (action, )

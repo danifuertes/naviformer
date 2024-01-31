@@ -6,19 +6,6 @@ from torch.utils.checkpoint import checkpoint
 from .modules import *
 
 
-def get_context(embeddings, state):
-    """Returns the context per step, optionally for multiple steps at once (for efficient eval of the model)."""
-
-    # Get current node index and expand it to (B x 1 x H) to allow gathering from embedding (B x N x H)
-    current_node = state['prev_node'].contiguous()[:, None, None].expand(-1, 1, embeddings.size(-1))
-
-    # Get embedding of current node
-    last_node_embed = torch.gather(input=embeddings, dim=1, index=current_node)[:, 0]
-
-    # Return context: (embedding of last node, remaining time/length, current position, distance to obstacles)
-    return torch.cat((last_node_embed, state['length'][..., None], state['position'], state['dist2obs']), dim=-1)
-
-
 class NaviFormer(nn.Module):
 
     def __init__(self,
@@ -133,14 +120,15 @@ class NaviFormer(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, state):
+    def forward(self, state, return_fixed=False):
 
         # Calculate graph embeddings during the first iteration
-        if 'inputs' in state:
+        if isinstance(state['inputs'], dict):
             embeddings = self.encoder(state['inputs'])  # Transformer encoder
             obs = state['inputs']['obs'] if 'obs' in state['inputs'] else None
             self.fixed_data = self.precompute(embeddings, obs)
-        assert self.fixed_data is not None, "Graph embeddings are missing, make sure you use the encoder"
+        else:
+            self.fixed_data = state['inputs']
 
         # Transformer decoder
         log_probs_node, selected_node, log_probs_direction, selected_direction = self.decoder(state)
@@ -153,7 +141,9 @@ class NaviFormer(nn.Module):
         log_prob_direction = self.select_log_probs(log_probs_direction, selected_direction)
         log_prob = self.combine_log_probs(log_prob_node, log_prob_direction)
 
-        # Return actions and log probabilities
+        # Return actions and log probabilities (and possibly fixed_data)
+        if return_fixed:
+            return actions, log_prob, self.fixed_data
         return actions, log_prob
 
     def encoder(self, inputs):
@@ -166,12 +156,7 @@ class NaviFormer(nn.Module):
         # Joint Transformer encoder
         init_embed = input_embed(inputs, self.init_embed, self.init_embed_depot)
         init_embed = (init_embed, inputs['obs']) if self.combined_mha else (init_embed, )
-
-        # Only checkpoint if we need gradients
-        if self.checkpoint_enc and self.training:
-            h = checkpoint(self.embedder, *init_embed)
-        else:
-            h = self.embedder(*init_embed)
+        h = self.embedder(*init_embed)
         embeddings = (h[0], h[2]) if self.combined_mha else h[0]
         return embeddings
 
@@ -235,8 +220,8 @@ class NaviFormer(nn.Module):
     def predict_node(self, state, normalize=True):
         """Predict log probabilities."""
 
-        # Compute state_embedding
-        state_embedding = self.project_state(get_context(self.fixed_data.graph_embedding, state))
+        # Compute state embedding
+        state_embedding = self.project_state(self.get_state_embedding(self.fixed_data.graph_embedding, state))
 
         # Compute the decoder's query from the state embedding
         query = self.fixed_data.graph_embedding_mean + self.fixed_data.obs_embedding_mean + state_embedding
@@ -259,6 +244,19 @@ class NaviFormer(nn.Module):
 
         # Return log probabilities
         return log_probs
+
+    @staticmethod
+    def get_state_embedding(embeddings, state):
+        """Returns the context per step, optionally for multiple steps at once (for efficient eval of the model)."""
+
+        # Get current node index and expand it to (B x 1 x H) to allow gathering from embedding (B x N x H)
+        current_node = state['prev_node'].contiguous()[:, None, None].expand(-1, 1, embeddings.size(-1))
+
+        # Get embedding of current node
+        last_node_embed = torch.gather(input=embeddings, dim=1, index=current_node)[:, 0]
+
+        # Return context: (embedding of last node, remaining time/length, current position, distance to obstacles)
+        return torch.cat((last_node_embed, state['length'][..., None], state['position'], state['dist2obs']), dim=-1)
 
     def mha_decoder(self, query, key, value, mask):
         """Multi-Head Attention (MHA) mechanism"""
@@ -345,9 +343,10 @@ class NaviFormer(nn.Module):
 
     def predict_direction(self, state, next_node):
         """Direction/Angle prediction."""
+        batch_ids = torch.arange(next_node.shape[0], dtype=torch.int64, device=next_node.device)
 
         # Get next selected goal
-        goal = state['regions'].get_regions_by_index(next_node)
+        goal = state['regions'][batch_ids, next_node]
 
         # Get local maps
         maps = create_local_maps(

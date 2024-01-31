@@ -51,7 +51,7 @@ def save_model(model, optimizer, baseline, save_dir, epoch):
     )
 
 
-def load_model_train(opts, problem, ensure_instance='', two_step=''):
+def load_model_train(opts, ensure_instance='', two_step=''):
 
     # Choose model
     model_class = {
@@ -79,7 +79,7 @@ def load_model_train(opts, problem, ensure_instance='', two_step=''):
 
     # Pre-trained (2-step) Transformer route planner
     if os.path.isdir(two_step) or os.path.isfile(two_step):
-        model.base_route_model, _ = load_model_eval(two_step, problem, kwargs={
+        model.base_route_model, _ = load_model_eval(two_step, kwargs={
             'num_depots': opts.num_depots,
             'num_agents': opts.num_agents,
             'info_th': opts.info_th,
@@ -104,7 +104,7 @@ def load_model_train(opts, problem, ensure_instance='', two_step=''):
     return model, load_data
 
 
-def load_model_eval(path, problem, epoch=None, kwargs=None, ensure_instance=''):
+def load_model_eval(path, epoch=None, kwargs=None, ensure_instance=''):
 
     # Path indicates the saved epoch
     if os.path.isfile(path):

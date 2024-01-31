@@ -21,7 +21,7 @@ def main(opts):
     problem = load_problem(opts.problem)
 
     # Load model
-    model, load_data = load_model_train(opts, problem)
+    model, load_data = load_model_train(opts)
 
     # Load baseline
     baseline = load_baseline(opts, model, problem, load_data)
@@ -130,29 +130,29 @@ def main(opts):
                     log_values(
                         reward, grad_norms, epoch, batch_id, step, log_prob, reinforce_loss, loss_bl, tb_logger, opts
                     )
+                step += 1
 
-                # Measure training time and report results
-                epoch_duration = time.time() - start_time
-                print("Finished epoch {}, took {} s".format(epoch,
-                                                            time.strftime('%H:%M:%S', time.gmtime(epoch_duration))))
+            # Measure training time and report results
+            epoch_duration = time.time() - start_time
+            print(f"Finished epoch {epoch}, took {time.strftime('%H:%M:%S', time.gmtime(epoch_duration))}")
 
-                # Save trained model
-                if (opts.checkpoint_epochs != 0 and epoch % opts.checkpoint_epochs == 0) or epoch == opts.epochs - 1:
-                    print('Saving model and state...')
-                    save_model(model, optimizer, baseline, opts.save_dir, epoch)
+            # Save trained model
+            if (opts.checkpoint_epochs != 0 and epoch % opts.checkpoint_epochs == 0) or epoch == opts.epochs - 1:
+                print('Saving model and state...')
+                save_model(model, optimizer, baseline, opts.save_dir, epoch)
 
-                # Validate
-                avg_reward = validate(model, val_env, opts)
+            # Validate
+            avg_reward = validate(model, val_env)
 
-                # Tensorboard info
-                if not opts.use_tensorboard:
-                    tb_logger.log_value('val_avg_reward', avg_reward, step)
+            # Tensorboard info
+            if not opts.use_tensorboard:
+                tb_logger.log_value('val_avg_reward', avg_reward, step)
 
-                # Update callback
-                baseline.epoch_callback(model, epoch)
+            # Update callback
+            baseline.epoch_callback(model, epoch)
 
-                # Update lr_scheduler
-                lr_scheduler.step()
+            # Update lr_scheduler
+            lr_scheduler.step()
 
 
 if __name__ == "__main__":
