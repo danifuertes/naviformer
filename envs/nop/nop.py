@@ -243,20 +243,15 @@ class NopEnv(gym.Env):
         self.prev_action = next_action
 
         # Return state, reward, done, info
-        self.i += 1
+        self.i = self.i + 1
         state = {
-            'i': self.i,
             'regions': self.regions.get_regions(),
             'position': self.position,
-            'visited': self.visited,
             'length': self.length,
-            'is_traveling': self.is_traveling,
-            'obs_bumped': self.obs_bumped,
             'dist2obs': self.get_dist2obs(),
             'mask_nodes': self.get_mask_nodes(),
             'mask_actions': self.get_mask_actions(),
             'prev_node': self.prev_node,
-            'prev_action': self.prev_action,
             'inputs': fixed_data
         }
         return state, -reward, self.finished().all().item(), None  # Negative reward since torch always minimizes
@@ -317,18 +312,14 @@ class NopEnv(gym.Env):
 
         # Return state
         state = {
-            'i': self.i,
             'regions': self.regions.get_regions(),
             'position': self.position,
             'visited': self.visited,
             'length': self.length,
-            'is_traveling': self.is_traveling,
-            'obs_bumped': self.obs_bumped,
             'dist2obs': self.get_dist2obs(),
             'mask_nodes': self.get_mask_nodes(),
             'mask_actions': self.get_mask_actions(),
             'prev_node': self.prev_node,
-            'prev_action': self.prev_action,
             'inputs': batch
         }
         return state
