@@ -1,7 +1,6 @@
 import math
 import os.path
 from torch import nn
-from torch.utils.checkpoint import checkpoint
 
 from .modules import *
 
