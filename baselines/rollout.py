@@ -29,7 +29,7 @@ class RolloutBaseline(BasicBaseline):
             device=self.opts.device,
             num_nodes=self.opts.num_nodes,
             num_samples=self.opts.val_size,
-            distribution=self.opts.data_dist,
+            data_dist=self.opts.data_dist,
             num_depots=self.opts.num_depots,
             max_length=self.opts.max_length,
             max_nodes=self.opts.max_nodes,

@@ -9,7 +9,7 @@ from utils import load_dataset
 
 class NopDataset(Dataset):
 
-    def __init__(self, num_nodes=20, num_depots=1, max_length=2., max_nodes=0, max_obs=0, distribution='const',
+    def __init__(self, num_nodes=20, num_depots=1, max_length=2., max_nodes=0, max_obs=0, data_dist='const',
                  num_samples=1000000, offset=0, filename='', desc='', **kwargs):
         super(NopDataset, self).__init__()
 
@@ -42,7 +42,7 @@ class NopDataset(Dataset):
             # Parameters to generate instances
             params = {
                 'num_nodes': num_nodes,
-                'data_dist': distribution,
+                'data_dist': data_dist,
                 'num_depots': num_depots,
                 'max_length': max_length,
                 'max_nodes': max_nodes,
@@ -56,7 +56,7 @@ class NopDataset(Dataset):
                 from torch.utils.data import DataLoader
                 torch.multiprocessing.set_sharing_strategy('file_system')
                 batch_size, num_workers, self.data, count = 1024, 16, [], num_samples
-                dataloader = DataLoader(GenerateInstance(num_samples, **params), batch_size, num_workers=num_workers)
+                dataloader = DataLoader(NopInstance(num_samples, **params), batch_size, num_workers=num_workers)
 
                 # Save batches into data list
                 for batch in tqdm(dataloader, desc=desc.ljust(15)):
@@ -105,10 +105,10 @@ class NopDatasetLarge(Dataset):
         return {element: torch.FloatTensor(data[i]) for i, element in enumerate(elements)}
 
 
-class GenerateInstance(Dataset):
+class NopInstance(Dataset):
 
     def __init__(self, num_samples, num_nodes, data_dist, num_depots, max_length, max_obs, max_nodes):
-        super(GenerateInstance, self).__init__()
+        super(NopInstance, self).__init__()
         self.num_samples = num_samples
         self.num_nodes = num_nodes
         self.data_dist = data_dist

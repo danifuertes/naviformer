@@ -231,7 +231,7 @@ class NopState(NamedTuple):
             reward[condition] = reward[condition] - 5
 
         # Update state and return reward and done
-        return self._replace(       # TODO: it is not updated
+        return self._replace(
             i=self.i+1,
             obs_bumped=obs_bumped,
             visited=visited,

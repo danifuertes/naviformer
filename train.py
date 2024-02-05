@@ -1,11 +1,6 @@
-import time
-import torch
-from tqdm import tqdm
-
+from utils import *
 from envs import load_problem
 from baselines import load_baseline
-from utils import config_logger, load_optimizer, load_lr_scheduler, resume_training, set_decode_type, \
-    get_inner_model, save_model, clip_grad_norms, log_values, get_options, validate, load_model_train, move_to
 
 
 def main(opts):
@@ -43,7 +38,7 @@ def main(opts):
         num_nodes=opts.num_nodes,
         num_samples=opts.val_size,
         filename=opts.val_dataset,
-        distribution=opts.data_dist,
+        data_dist=opts.data_dist,
         num_depots=opts.num_depots,
         max_length=opts.max_length,
         max_nodes=opts.max_nodes,
@@ -70,7 +65,7 @@ def main(opts):
                 baseline=baseline,
                 num_nodes=opts.num_nodes,
                 num_samples=opts.epoch_size,
-                distribution=opts.data_dist,
+                data_dist=opts.data_dist,
                 num_depots=opts.num_depots,
                 max_length=opts.max_length,
                 filename=opts.train_dataset,
