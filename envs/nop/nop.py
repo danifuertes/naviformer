@@ -7,13 +7,14 @@ from envs.nop.nop_utils import NopDataset
 
 class NopEnv:
 
-    def __init__(self, batch_size=1024, num_workers=16, device=None, num_actions=4, time_step=2e-2, *args, **kwargs):
+    def __init__(self, batch_size=1024, num_workers=0, device=None, num_actions=4, time_step=2e-2, *args, **kwargs):
         dataset = NopDataset(*args, **kwargs)
         self.dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
         self.num_steps = len(dataset) // batch_size
         self.device = device
         self.num_actions = num_actions
         self.time_step = time_step
+        self.name = "NOP"
 
     def get_state(self, batch):
         return NopState.initialize(batch, num_actions=self.num_actions, time_step=self.time_step)
@@ -84,8 +85,8 @@ class NopState(NamedTuple):
         prizes = batch['prize']
 
         # Depots
-        depot_ini = batch['depot']
-        depot_end = batch['depot2'] if 'depot2' in batch else batch['depot']
+        depot_ini = batch['depot_ini']
+        depot_end = batch['depot_end']
 
         # Maximum allowed length
         max_length = batch['max_length']
@@ -258,6 +259,15 @@ class NopState(NamedTuple):
                     self.obs_bumped,                                                            # No bumping
                     self.get_remaining_length() < 0                                             # Still on time
                 )
+            )
+        )
+
+    def check_success(self):
+        return torch.logical_and(
+            self.finished(),                                                                # Finished
+            ~torch.logical_or(
+                self.obs_bumped,                                                            # No bumping
+                self.get_remaining_length() < 0                                             # Still on time
             )
         )
 

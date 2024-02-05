@@ -145,8 +145,11 @@ class NaviFormer(nn.Module):
             total_reward += reward
             total_log_prob += log_prob
 
+        # Check success
+        success = state.check_success()
+
         # Return reward and log probabilities
-        return total_reward, total_log_prob, torch.stack(actions, dim=1)
+        return total_reward, total_log_prob, torch.stack(actions, dim=1), success
 
     def episode(self, state):
 

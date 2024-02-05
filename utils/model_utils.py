@@ -104,7 +104,7 @@ def load_model_train(opts, ensure_instance='', two_step=''):
     return model, load_data
 
 
-def load_model_eval(path, epoch=None, kwargs=None, ensure_instance=''):
+def load_model_eval(path, epoch=None, kwargs=None, ensure_instance='', decode='greedy', temp=None):
 
     # Path indicates the saved epoch
     if os.path.isfile(path):
@@ -126,27 +126,30 @@ def load_model_eval(path, epoch=None, kwargs=None, ensure_instance=''):
     # Load arguments
     args = load_args(os.path.join(path, 'args.json'))
 
-    # Load problem
-    # problem = load_problem(args['problem'])
-
     # Load model
     model_class = {
         'naviformer': NaviFormer,
         'naviformer_2step': NaviFormer2Step,
-    }.get(args.get('model', 'naviformer'), None)
+    }.get(args.get('model', ''), None)
     assert model_class is not None, "Unknown model: {}".format(model_class)
     kwargs = {} if kwargs is None else kwargs
     model = model_class(
-        embed_dim=args['embed_dim'],
+        embed_dim=args.get('embed_dim', 128),
         num_heads=args.get('num_heads', 8),
-        num_blocks=args['num_blocks'],
-        normalization=args['normalization'],
-        tanh_clipping=args['tanh_clipping'],
-        checkpoint_enc=args.get('checkpoint_enc', False),
-        combined_mha=args.get('combined_mha'),
+        num_blocks=args.get('num_blocks', 2),
+        normalization=args.get('normalization', 'batch'),
+        tanh_clipping=args.get('tanh_clipping', 10.),
+        combined_mha=args.get('combined_mha', False),
         two_step=args.get('two_step', ''),
+        max_obs=args.get('max_obs', 5),
         **kwargs
     )
+
+    # Get fancy name
+    args['fancy_name'] = {
+        'naviformer': 'NaviFormer',
+        'naviformer_2step': 'NaviFormer2Step'
+    }.get(args.get('model', ''), 'NoName')
 
     # Ensure model is an instance of the correct class
     if ensure_instance != '':
@@ -155,13 +158,12 @@ def load_model_eval(path, epoch=None, kwargs=None, ensure_instance=''):
 
     # Overwrite model parameters by parameters to load
     load_data = load_cpu(model_filename)
-    # for i in range(len(model.state_dict().keys())):
-    #     print(f"{list(model.state_dict().keys())[i]} | {list(load_data.get('model', {}).keys())[i]}")
     model.load_state_dict({**model.state_dict(), **load_data.get('model', {})})
     model, *_ = load_file(model_filename, model)
 
     # Put in eval mode
     model.eval()
+    model.set_decode_type(decode, temp=temp)
     return model, args
 
 

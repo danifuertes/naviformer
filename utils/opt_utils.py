@@ -10,6 +10,7 @@ def global_vars():
         'DATA_DIST': ['const', 'unif', 'dist'],
         'MODELS': ['naviformer'],
         'NORM': ['batch', 'instance'],
+        'DECODE_STRATEGY': ['greedy', 'sample'],
         'BASELINES': ['rollout', 'critic', 'exponential', None],
         'ROUTE_PLANNERS': ['ga', 'ortools'],
         'PATH_PLANNERS': ['a_star', 'd_star']

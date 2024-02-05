@@ -15,8 +15,8 @@ def data2list(data):
     datalist = []
     for d in data:
         datalist.append([])
-        for v in d.values():
-            datalist[-1].append(v.tolist())
+        for k in sorted(d.keys()):
+            datalist[-1].append(d[k].tolist())
     return datalist
 
 

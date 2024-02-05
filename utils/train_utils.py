@@ -82,7 +82,7 @@ def rollout(model, env, desc=''):
     for batch in tqdm(env.dataloader, desc=desc):
         batch = move_to(batch, device=env.device)
         with torch.no_grad():
-            reward, _, _ = model(batch, env)
+            reward, _, _, _ = model(batch, env)
         rewards.append(reward.data.cpu())
     return torch.cat(rewards, dim=0)
 

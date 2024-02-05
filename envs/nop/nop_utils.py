@@ -1,7 +1,9 @@
 import os
 import torch
 import pickle
+import numpy as np
 from tqdm import tqdm
+from datetime import timedelta
 from torch.utils.data import Dataset
 
 from utils import load_dataset
@@ -22,11 +24,14 @@ class NopDataset(Dataset):
                 data = pickle.load(f)
 
             # Load elements from file
-            elements = ['depot', 'loc', 'prize', 'max_length']
-            if num_depots > 1:
-                elements.append('depot2')
-            if max_obs:
+            elements = ['depot_ini', 'depot_end', 'loc', 'prize', 'max_length']
+            num_data, num_elements = len(data[0]), len(elements)
+            if num_data == num_elements + 1:
                 elements.append('obs')
+            else:
+                assert num_data == num_elements, \
+                    f"Wrong data input from {filename}, found {num_data} elements, expected {num_elements}"
+            elements = sorted(elements)
             self.data = [
                 {
                     element: torch.tensor(element_data[i]) if isinstance(element_data[i], float)
@@ -97,11 +102,10 @@ class NopDatasetLarge(Dataset):
 
     def __getitem__(self, idx):
         data = load_dataset(os.path.join(self.filename, str(idx).zfill(9)))
-        elements = ['depot', 'loc', 'prize', 'max_length']
-        if self.num_depots > 1:
-            elements.append('depot2')
+        elements = ['depot_ini', 'depot_end', 'loc', 'prize', 'max_length']
         if self.max_obs:
             elements.append('obs')
+        elements = sorted(elements)
         return {element: torch.FloatTensor(data[i]) for i, element in enumerate(elements)}
 
 
@@ -138,7 +142,7 @@ def generate_instance(num_nodes, data_dist, num_depots=1, max_length=2., max_nod
 
     # Regions (that do not collide with obstacles)
     num_nodes = max_nodes if max_nodes else num_nodes
-    loc, depot, depot2 = generate_regions(num_nodes, num_depots=num_depots, obs=obs)
+    loc, depot_ini, depot_end = generate_regions(num_nodes, num_depots=num_depots, obs=obs)
 
     # Constant prizes (Fischetti et al. 1998)
     if data_dist == 'const':
@@ -151,7 +155,7 @@ def generate_instance(num_nodes, data_dist, num_depots=1, max_length=2., max_nod
     # Prizes grow with the distance to the end depot (Fischetti et al. 1998)
     else:
         assert data_dist == 'dist', f"'{data_dist}' not in data_dist list: ['const'. 'unif', 'dist']"
-        d = depot if depot2 is None else depot2
+        d = depot_ini if depot_end is None else depot_end
         prize_ = (d[None, :] - loc).norm(p=2, dim=-1)
         prize = (1 + (prize_ / prize_.max(dim=-1, keepdim=True)[0] * 99).int()).float() / 100.
 
@@ -165,11 +169,7 @@ def generate_instance(num_nodes, data_dist, num_depots=1, max_length=2., max_nod
         max_length = torch.tensor(max_length)
 
     # Output dataset
-    dictionary = {'loc': loc, 'prize': prize, 'depot': depot, 'max_length': max_length}
-
-    # End depot is different from start depot
-    if num_depots == 2:
-        dictionary['depot2'] = depot2
+    dictionary = {'loc': loc, 'prize': prize, 'depot_ini': depot_ini, 'depot_end': depot_end, 'max_length': max_length}
 
     # Obstacles
     if max_obs:
@@ -229,7 +229,51 @@ def generate_regions(num_nodes, num_depots=1, obs=None):
             grid_size - 1)
 
     # Separate regions and depots
-    depot = points[0]
-    depot2 = points[1] if num_depots == 2 else None
+    depot_ini = points[0]
+    depot_end = points[1] if num_depots == 2 else points[0]
     loc = points[num_depots:]
-    return loc, depot, depot2
+    return loc, depot_ini, depot_end
+
+
+def print_nop_results(results):
+
+    # Get results info
+    reward, actions, success, duration, num_nodes, parallelism = results
+
+    # Get number of nodes visited
+    visits = []
+    for i, action in enumerate(actions):
+        nodes = np.array(action)[:, 0]
+        unique_nodes = len(np.unique(nodes)) - 1  # Remove one since end depot should not count
+        if success[i]:
+            visits.append(unique_nodes)
+
+    # Print reward
+    print("\nREWARD")
+    print(f"\tAverage reward: {-np.mean(reward):.4f} +- {2 * np.std(reward) / np.sqrt(len(reward)):.4f}")
+    print(f"\tMax reward: {-np.min(reward):.4f} | Min reward: {-np.max(reward):.4f}")
+
+    # Print success rate
+    print("\nSUCCESS")
+    print(f"\tFound success in {np.sum(success)}/{len(success)} scenarios")
+    print(f"\tRate of success: {np.mean(success):.4f} +- {2 * np.std(success) / np.sqrt(len(success)):.4f}")
+
+    # Print number of nodes visited
+    node_rate = np.array(visits) / (np.mean(num_nodes) / 2)  # Max length is fixed to allow visiting half of the nodes
+    print("\nNUMBER OF NODES VISITED")
+    print(f"\tAverage number of nodes visited: {np.mean(visits):.4f} +- {2 * np.std(visits) / np.sqrt(len(visits)):.4f}")
+    print(f"\tMax number of nodes visited: {np.max(visits):.0f} | Min number of nodes visited: {np.min(visits):.0f}")
+    print(f"\tRate of nodes visited: {np.mean(node_rate):.4f} +- {2 * np.std(node_rate) / np.sqrt(len(node_rate)):.4f}")
+
+    # Print serial duration
+    mean_time, ci_time = np.mean(duration), 2 * np.std(duration) / np.sqrt(len(duration))
+    print("\nTIME")
+    print(f"\tAverage serial duration: {mean_time} +- {ci_time} seconds")
+
+    # Print parallel duration
+    mean_time, ci_time = np.mean(duration) / parallelism, 2 * np.std(duration) / np.sqrt(len(duration)) / parallelism
+    print(f"\tAverage parallel duration: {mean_time} +- {ci_time} seconds")
+
+    # Print total time
+    total_time = np.sum(duration) / parallelism
+    print(f"\tCalculated total duration: {timedelta(seconds=int(total_time))} ({total_time} seconds)\n")

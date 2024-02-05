@@ -92,18 +92,18 @@ def main(opts):
                     p.requires_grad = True
 
             # Train one epoch
-            print("Start train epoch {}, lr={}".format(epoch, optimizer.param_groups[0]['lr']))
+            print(f"Start train epoch {epoch}, lr={optimizer.param_groups[0]['lr']}")
             for batch_id, batch in enumerate(tqdm(train_env.dataloader, desc='Training'.ljust(15))):
                 batch = move_to(batch, device=opts.device)
 
                 # Run episode
-                reward, log_prob, _ = model(batch, train_env)
+                rewards, log_prob, _, _ = model(batch, train_env)
 
                 # Run baseline episode
-                reward_bl, loss_bl = baseline.eval(batch, reward, train_env)
+                rewards_bl, loss_bl = baseline.eval(batch, rewards, train_env)
 
                 # Calculate loss function
-                reinforce_loss = ((reward - reward_bl) * log_prob).mean()
+                reinforce_loss = ((rewards - rewards_bl) * log_prob).mean()
                 loss = reinforce_loss + loss_bl
 
                 # Perform backward pass
@@ -119,7 +119,7 @@ def main(opts):
                 # Logging
                 if step % int(opts.log_step) == 0:
                     log_values(
-                        reward, grad_norms, epoch, batch_id, step, log_prob, reinforce_loss, loss_bl, tb_logger, opts
+                        rewards, grad_norms, epoch, batch_id, step, log_prob, reinforce_loss, loss_bl, tb_logger, opts
                     )
                 step += 1
 
