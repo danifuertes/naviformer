@@ -2,7 +2,7 @@
 
 class BasicBaseline(object):
 
-    def eval(self, x, c, e):
+    def eval(self, x, c, s):
         raise NotImplementedError("Override this method")
 
     def get_learnable_parameters(self):

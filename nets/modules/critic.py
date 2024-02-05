@@ -40,12 +40,15 @@ class Critic(nn.Module):
             nn.Linear(embed_dim, 1)
         )
 
-    def forward(self, state):
-        assert 'inputs' in state, "Wrong input data for critic"
+    def forward(self, batch, env):
+
+        # Initialize state
+        state = env.get_state(batch)
+        del batch
 
         # Initial embedding
-        x = input_embed(state['inputs'], self.init_embed, self.embed_depot)
-        x = (x, state['inputs']['obs']) if self.combined_mha else (x, None)
+        x = input_embed(state, self.init_embed, self.embed_depot)
+        x = (x, state.obs) if self.combined_mha else (x, None)
 
         # Graph embedding (encoder)
         graph_embeddings = self.encoder(*x)

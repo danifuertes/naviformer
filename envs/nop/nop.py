@@ -1,47 +1,326 @@
-import gym
 import torch
+from typing import NamedTuple
 from torch.utils.data import DataLoader
 
 from envs.nop.nop_utils import NopDataset
-from utils import move_to
 
 
-class NopRegions:
+class NopEnv:
 
-    def __init__(self, regions, prizes=None, depot_ini=None, depot_end=None, min_value=0, max_value=1):
+    def __init__(self, batch_size=1024, num_workers=16, device=None, num_actions=4, time_step=2e-2, *args, **kwargs):
+        dataset = NopDataset(*args, **kwargs)
+        self.dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
+        self.num_steps = len(dataset) // batch_size
+        self.device = device
+        self.num_actions = num_actions
+        self.time_step = time_step
 
-        # Coordinates
-        self.regions = regions
+    def get_state(self, batch):
+        return NopState.initialize(batch, num_actions=self.num_actions, time_step=self.time_step)
 
-        # Dimensions
-        assert len(regions.shape) == 3, \
-            "Regions' coordinates should have 3 dimensions: batch_size, num_regions, num_dims"
-        self.batch_size, self.num_regions, self.num_dims = regions.shape
 
-        # Device
-        self.device = regions.device
+class NopState(NamedTuple):
 
-        # Prizes
-        self.prizes = prizes if prizes is not None else torch.ones(
-            size=(self.batch_size, self.num_regions), dtype=torch.long, device=self.device
+    # Scenario
+    regions: torch.Tensor           # Visitable regions
+    prizes: torch.Tensor            # Prize for visiting each region
+    depot_ini: torch.Tensor         # Initial depot
+    depot_end: torch.Tensor         # End depot
+    max_length: torch.Tensor        # Time/distance limit
+    obs: torch.Tensor               # Obstacles
+    obs_bumped: torch.Tensor        # Indicates if agent has bumped an obstacle
+
+    # State
+    visited: torch.Tensor           # Keeps track of nodes that have been visited
+    prev_node: torch.Tensor         # Previous node selected to visit
+    prev_action: torch.Tensor       # Previous action taken
+    position: torch.Tensor          # Current agent position
+    length: torch.Tensor            # Time/distance of the travel
+    is_traveling: torch.Tensor      # Indicates if agent has reached a region or is traveling
+
+    # Misc
+    i: torch.Tensor                 # Keeps track of step
+    device: torch.device            # Torch device (gpu or cpu)
+    num_actions: int                # Number of directions to follow
+    time_step: float                # Duration/length of a step
+    reward: torch.Tensor            # Last collected reward
+    done: bool                      # Terminal state for every element of the batch
+    min_value: float                # Minimum normalization value
+    max_value: float                # Maximum normalization value
+
+    def __getitem__(self, key):
+        assert torch.is_tensor(key) or isinstance(key, slice)  # If tensor, idx all tensors by this tensor:
+        return self._replace(
+            i=self.i[key],
+            regions=self.regions[key],
+            prizes=self.prizes[key],
+            depot_ini=self.depot_ini[key],
+            depot_end=self.depot_end[key],
+            max_length=self.max_length[key],
+            obs=self.obs[key],
+            obs_bumped=self.obs_bumped[key],
+            visited=self.visited[key],
+            prev_node=self.prev_node[key],
+            prev_action=self.prev_action[key],
+            position=self.position[key],
+            length=self.length[key],
+            is_traveling=self.is_traveling[key],
+            reward=self.reward[key],
         )
 
+    @staticmethod
+    def initialize(batch, num_actions=4, time_step=2e-2, min_value=0, max_value=1):
+
+        # Device
+        device = batch[list(batch.keys())[0]].device
+
+        # Count iterations
+        i = torch.zeros(1, device=device)
+
+        # Regions
+        regions = batch['loc']
+
+        # Prizes
+        prizes = batch['prize']
+
         # Depots
-        self.depot_ini = depot_ini
-        self.depot_end = depot_end
+        depot_ini = batch['depot']
+        depot_end = batch['depot2'] if 'depot2' in batch else batch['depot']
 
-        # Normalization
-        self.min_value = min_value
-        self.max_value = max_value
+        # Maximum allowed length
+        max_length = batch['max_length']
 
-    def __len__(self):
-        return self.num_regions
+        # Dimensions
+        all_regions = torch.cat((depot_ini[:, None], regions, depot_end[:, None]), axis=-2)
+        batch_size, num_regions, _ = all_regions.shape
 
-    def normalize(self):
-        self.regions = (self.regions - self.min_value) / (self.max_value - self.min_value)
+        # Obstacles
+        obs = batch['obs'] if 'obs' in batch else None
+        obs_bumped = torch.zeros(batch_size, dtype=torch.int64, device=device) if obs is not None else None
 
-    def denormalize(self, min_value=0, max_value=1):
-        self.regions = self.regions * (max_value - min_value) + min_value
+        # Mask of visited regions
+        visited = torch.zeros(size=(batch_size, num_regions), dtype=torch.uint8, device=device)
+        visited[..., 0] = 1
+        visited[all_regions[..., 0] < 0] = 1  # Block dummy (negative) regions if any
+
+        # Previously visited node
+        prev_node = torch.zeros(batch_size, dtype=torch.long, device=device)
+
+        # Previous action
+        prev_action = torch.zeros(batch_size, dtype=torch.long, device=device)
+
+        # Traveled length
+        length = torch.zeros(batch_size, device=device)
+
+        # Traveling info
+        is_traveling = torch.zeros(batch_size, dtype=torch.bool, device=device)
+
+        # Reward and done
+        reward = torch.zeros(1, device=device)
+        done = False
+
+        # Create State
+        return NopState(
+            i=i,
+            device=device,
+            regions=regions,
+            prizes=prizes,
+            depot_ini=depot_ini,
+            depot_end=depot_end,
+            max_length=max_length,
+            obs=obs,
+            obs_bumped=obs_bumped,
+            visited=visited,
+            prev_node=prev_node,
+            prev_action=prev_action,
+            position=depot_ini,
+            length=length,
+            is_traveling=is_traveling,
+            num_actions=num_actions,
+            time_step=time_step,
+            min_value=min_value,
+            max_value=max_value,
+            reward=reward,
+            done=done
+        )
+
+    def step(self, action):
+
+        # Not finished flag (terminal states are: time out, reach end depot, bump obstacle)
+        nf = ~self.finished()
+
+        # Action = (Next node to visit, Next action/direction to follow)
+        next_node_idx = action[..., 0]
+        next_action = action[..., 1]
+
+        # Update next position
+        polar = torch.polar(
+            torch.zeros_like(self.position[:, 0]) + torch.tensor(self.time_step),
+            next_action * 2 * torch.pi / 4
+        )
+        new_position = self.position.clone()
+        new_position[nf] = self.position[nf] + torch.stack((polar.real, polar.imag), -1)[nf]
+
+        # Update length of route
+        length = self.length + (new_position - self.position).norm(p=2, dim=-1)
+        assert not torch.isinf(length).any(), "Length is inf"
+
+        # Distance to next node
+        next_node_coords = self.get_regions_by_index(next_node_idx)
+        dist2next = (new_position - next_node_coords).norm(p=2, dim=-1)
+
+        # Check whether the agent has just arrived to next node or it is still traveling
+        is_traveling = self.is_traveling
+        is_traveling[dist2next > self.time_step] = True  # Traveling
+        is_traveling[dist2next <= self.time_step] = False  # Not traveling
+        is_traveling[~nf] = False  # Once on terminal state, do not travel
+
+        # Mask visited regions
+        visited = self.visited.scatter(-1, next_node_idx[..., None], 1)
+
+        # Reward
+        reward = torch.zeros(nf.shape[0], device=self.device)
+
+        # Reward: visiting next node
+        condition = torch.logical_and(
+            torch.logical_and(~is_traveling, nf),  # Agent is not traveling and has not finished yet
+            dist2next <= self.time_step  # Next node is visited
+        )
+        reward[condition] += 60 * self.get_prize_by_index(next_node_idx)[condition] / (
+                (self.get_regions()[..., 0] >= 0).sum(1) - 2
+        )[condition]
+
+        # Penalty: distance to next node
+        reward[nf] -= dist2next[nf] * 0.3
+
+        # Reward: reaching end depot within time limit
+        end_idx = self.get_end_idx()
+        dist2end = (new_position - self.get_regions_by_index(end_idx)).norm(p=2, dim=-1)
+        condition = torch.logical_and(
+            torch.logical_and(
+                torch.eq(next_node_idx, end_idx),  # Next node == end depot
+                (dist2end <= self.time_step)  # End depot visited
+            ),
+            nf  # Not finished
+        )
+        reward[condition] = reward[condition] + 20
+
+        # Penalty: not reaching end depot within time limit
+        condition = torch.logical_and(
+            torch.logical_and(
+                (self.max_length - length < 0),  # Time limit is surpassed
+                (dist2end > self.time_step)  # End depot not visited
+            ),
+            nf  # Not finished
+        )
+        reward[condition] = reward[condition] - 5
+
+        # Penalty: bumping into obstacles
+        obs_bumped = self.obs_bumped
+        if self.obs is not None:
+            obs_bumped[
+                torch.ge(
+                    self.obs[..., 2],
+                    self.get_dist2obs(position=new_position)
+                ).any(dim=-1)
+            ] = True  # obs_bumped = 1 if agent is inside obstacle
+            condition = torch.logical_and(
+                obs_bumped,  # Bumped into obstacle
+                nf  # Not finished
+            )
+            reward[condition] = reward[condition] - 5
+
+        # Update state and return reward and done
+        return self._replace(       # TODO: it is not updated
+            i=self.i+1,
+            obs_bumped=obs_bumped,
+            visited=visited,
+            prev_node=next_node_idx,
+            prev_action=next_action,
+            position=new_position,
+            length=length,
+            is_traveling=is_traveling,
+            reward=-reward,   # Negative reward since torch always minimizes
+            done=self.finished().all().item()
+        )
+
+    def finished(self):
+
+        # Check conditions for finishing episode
+        return torch.logical_and(
+            self.i > 0,                                                                         # Not first step
+            torch.logical_or(
+                torch.logical_and(
+                    torch.eq(self.prev_node, self.get_end_idx()),                               # Going to end
+                    (self.position - self.get_depot_end()).norm(p=2, dim=-1) <= self.time_step  # On end depot
+                ),
+                torch.logical_or(
+                    self.obs_bumped,                                                            # No bumping
+                    self.get_remaining_length() < 0                                             # Still on time
+                )
+            )
+        )
+
+    def get_remaining_length(self):
+        return self.max_length - self.length
+
+    def get_dist2obs(self, position=None):
+        if self.obs is None:
+            return None
+        if position is None:
+            position = self.position
+        return (position[:, None] - self.obs[..., :2]).norm(p=2, dim=-1)
+
+    def get_features(self):
+        return self.prizes,
+
+    def get_mask_nodes(self):
+        """
+        Gets a (batch_size, n_loc + 1) mask with the feasible actions, depends on already visited and remaining
+        capacity. 0 = feasible, 1 = infeasible. Forbids to visit depot twice in a row, unless all nodes have been
+        visited.
+        """
+        batch_ids = torch.arange(self.get_batch_size(), dtype=torch.int64, device=self.device)
+        end_idx = self.get_end_idx()
+
+        # Define mask (with visited nodes)
+        visited_ = self.visited.to(torch.bool)
+        mask = visited_ | visited_[..., end_idx, None]
+
+        # Block initial depot
+        mask[..., 0] = 1
+
+        # While traveling, do not change agent's mind
+        mask[self.is_traveling] = 1  # Comment this line to allow changing agent's mind (careful with lengths then)
+        mask[batch_ids[self.is_traveling], self.prev_node[self.is_traveling]] = 0
+
+        # End depot can always be visited, but once visited, cannot leave the place
+        mask[~self.is_traveling, end_idx] = 0
+        finished = self.finished()
+        mask[finished] = 1
+        mask[finished, end_idx] = 0  # Always allow visiting end depot to prevent running out of nodes to choose
+        return mask
+
+    def get_mask_actions(self):
+
+        # Initialize mask
+        mask = torch.zeros((self.get_batch_size(), self.num_actions), dtype=torch.bool, device=self.device)
+
+        # Ban actions (directions) that lead out of the map | TODO: adapt for more than 4 actions
+        mask[self.position[..., 0] + self.time_step > 1, 0] = 1
+        mask[self.position[..., 1] + self.time_step > 1, 1] = 1
+        mask[self.position[..., 0] - self.time_step < 0, 2] = 1
+        mask[self.position[..., 1] - self.time_step < 0, 3] = 1
+
+        # No more restrictions are required during the first step, so return the mask
+        if self.i < 1:
+            return mask.bool()
+
+        # Avoid performing the action opposite to that performed before
+        banned_actions = self.prev_action[..., None] + self.num_actions / 2
+        banned_actions[banned_actions > self.num_actions - 1] -= self.num_actions
+        mask = mask.scatter(-1, banned_actions.long(), 1)
+        return mask.bool()
 
     def is_depot_ini(self):
         return self.depot_ini is not None
@@ -98,301 +377,19 @@ class NopRegions:
         return self.regions.shape[2]
 
     def get_regions_by_index(self, idx):
-        batch_ids = torch.arange(self.batch_size, dtype=torch.int64, device=self.device)
+        batch_ids = torch.arange(self.get_batch_size(), dtype=torch.int64, device=self.device)
         return self.get_regions()[batch_ids, idx]
 
     def get_prize_by_index(self, idx):
-        batch_idx = torch.arange(self.batch_size, dtype=torch.int64, device=self.device)
+        batch_idx = torch.arange(self.get_batch_size(), dtype=torch.int64, device=self.device)
         return self.get_prizes()[batch_idx, idx]
 
     def get_end_idx(self):
         return self.get_num_regions() - 1 if self.is_depot_end() else 0
 
+    def normalize(self, regions):
+        return (regions - self.min_value) / (self.max_value - self.min_value)
 
-class NopEnv(gym.Env):
-
-    def __init__(self, batch_size=1024, num_workers=16, device=None, time_step=2e-2, baseline=None, num_actions=4,
-                 *args, **kwargs):
-
-        # Number of actions / directions
-        self.num_actions = num_actions
-
-        # Device
-        self.device = device
-
-        # Problem name
-        self.name = 'nop'
-
-        # Baseline
-        self.baseline = baseline
-
-        # Data
-        dataset = NopDataset(*args, **kwargs)
-        self.dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
-
-        # Steps (number of batches per epoch)
-        self.num_steps = len(dataset) // batch_size
-
-        # Initialize scenario
-        self.regions = None
-        self.max_length = None
-        self.obs = None
-
-        # Initialize state
-        self.position = None
-        self.visited = None
-        self.length = None
-        self.is_traveling = None
-        self.obs_bumped = None
-        self.i = torch.zeros(1, dtype=torch.int64, device=device)
-
-        # Initialize actions
-        self.prev_node = None
-        self.prev_action = None
-
-        # Time step
-        self.time_step = time_step
-
-    def step(self, action, fixed_data=None):
-
-        # Not finished flag (terminal states are: time out, reach end depot, bump obstacle)
-        nf = ~self.finished()
-
-        # Action = (Next node to visit, Next action/direction to follow)
-        next_node_idx = action[..., 0]
-        next_action = action[..., 1]
-
-        # Update next position
-        polar = torch.polar(
-            torch.zeros_like(self.position[:, 0]) + torch.tensor(self.time_step),
-            next_action * 2 * torch.pi / 4
-        )
-        new_position = self.position.clone()
-        new_position[nf] = self.position[nf] + torch.stack((polar.real, polar.imag), -1)[nf]
-
-        # Update length of route
-        self.length = self.length + (new_position - self.position).norm(p=2, dim=-1)
-        assert not torch.isinf(self.length).any(), "Length is inf"
-
-        # Distance to next node
-        next_node_coords = self.regions.get_regions_by_index(next_node_idx)
-        dist2next = (new_position - next_node_coords).norm(p=2, dim=-1)
-
-        # Check whether the agent has just arrived to next node or it is still traveling
-        self.is_traveling[dist2next > self.time_step] = True    # Traveling
-        self.is_traveling[dist2next <= self.time_step] = False  # Not traveling
-        self.is_traveling[~nf] = False                          # Once on terminal state, do not travel
-
-        # Mask visited regions
-        self.visited = self.visited.scatter(-1, next_node_idx[..., None], 1)
-
-        # Reward
-        reward = torch.zeros(nf.shape[0], device=self.device)
-
-        # Reward: visiting next node
-        condition = torch.logical_and(
-            torch.logical_and(~self.is_traveling, nf),          # Agent is not traveling and has not finished yet
-            dist2next <= self.time_step                         # Next node is visited
-        )
-        reward[condition] += 60 * self.regions.get_prize_by_index(next_node_idx)[condition] / (
-                (self.regions.get_regions()[..., 0] >= 0).sum(1) - 2
-        )[condition]
-
-        # Penalty: distance to next node
-        reward[nf] -= dist2next[nf] * 0.3
-
-        # Reward: reaching end depot within time limit
-        end_idx = self.regions.get_end_idx()
-        dist2end = (new_position - self.regions.get_regions_by_index(end_idx)).norm(p=2, dim=-1)
-        condition = torch.logical_and(
-            torch.logical_and(
-                torch.eq(next_node_idx, end_idx),               # Next node == end depot
-                (dist2end <= self.time_step)                    # End depot visited
-            ),
-            nf                                                  # Not finished
-        )
-        reward[condition] = reward[condition] + 20
-
-        # Penalty: not reaching end depot within time limit
-        condition = torch.logical_and(
-            torch.logical_and(
-                (self.max_length - self.length < 0),            # Time limit is surpassed
-                (dist2end > self.time_step)                     # End depot not visited
-            ),
-            nf                                                  # Not finished
-        )
-        reward[condition] = reward[condition] - 5
-
-        # Penalty: bumping into obstacles
-        if self.obs is not None:
-            self.obs_bumped[
-                torch.ge(
-                    self.obs[..., 2],
-                    (new_position[:, None] - self.obs[..., :2]).norm(p=2, dim=-1)
-                ).any(dim=-1)
-            ] = True                                            # obs_bumped = 1 if agent is inside obstacle
-            condition = torch.logical_and(
-                self.obs_bumped,                                # Bumped into obstacle
-                nf                                              # Not finished
-            )
-            reward[condition] = reward[condition] - 5
-
-        # Update state
-        self.position = new_position
-        self.prev_node = next_node_idx
-        self.prev_action = next_action
-
-        # Return state, reward, done, info
-        self.i = self.i + 1
-        state = {
-            'regions': self.regions.get_regions(),
-            'position': self.position,
-            'length': self.length,
-            'dist2obs': self.get_dist2obs(),
-            'mask_nodes': self.get_mask_nodes(),
-            'mask_actions': self.get_mask_actions(),
-            'prev_node': self.prev_node,
-            'inputs': fixed_data
-        }
-        return state, -reward, self.finished().all().item(), None  # Negative reward since torch always minimizes
-
-    def reset(self, **kwargs):
-
-        # Load data on device
-        batch = next(iter(self.dataloader))
-        batch = move_to(batch, self.device)
-
-        # Return initial state
-        state = self.get_state_from_batch(batch)
-        return state
-
-    def get_state_from_batch(self, batch):
-
-        # Regions
-        self.regions = NopRegions(
-            regions=batch['loc'],
-            prizes=batch['prize'],
-            depot_ini=batch['depot'],
-            depot_end=batch['depot2'] if 'depot2' in batch else batch['depot']
-        )
-
-        # Dimensions
-        batch_size = self.regions.get_batch_size()
-        num_regions = self.regions.get_num_regions()
-
-        # Maximum allowed length
-        self.max_length = batch['max_length']
-
-        # Obstacles
-        self.obs = batch['obs'] if 'obs' in batch else None
-        self.obs_bumped = torch.zeros(batch_size, dtype=torch.int64, device=self.device) if self.obs is not None else None
-
-        # Mask of visited regions
-        self.visited = torch.zeros(size=(batch_size, num_regions), dtype=torch.uint8, device=self.device)
-        self.visited[..., 0] = 1
-        self.visited[self.regions.get_regions()[..., 0] < 0] = 1  # Block dummy (negative) regions if any
-
-        # Count iterations
-        self.i = 0
-
-        # Previously visited node
-        self.prev_node = torch.zeros(batch_size, dtype=torch.long, device=self.device)
-
-        # Previous action
-        self.prev_action = torch.zeros(batch_size, dtype=torch.long, device=self.device)
-
-        # Position
-        self.position = self.regions.depot_ini
-
-        # Traveled length
-        self.length = torch.zeros(batch_size, device=self.device)
-
-        # Misc
-        self.is_traveling = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
-
-        # Return state
-        state = {
-            'regions': self.regions.get_regions(),
-            'position': self.position,
-            'length': self.length,
-            'dist2obs': self.get_dist2obs(),
-            'mask_nodes': self.get_mask_nodes(),
-            'mask_actions': self.get_mask_actions(),
-            'prev_node': self.prev_node,
-            'inputs': batch
-        }
-        return state
-
-    def finished(self):
-
-        # Check conditions for finishing episode
-        return torch.logical_and(
-            torch.tensor(self.i > 0, device=self.device),                                               # Not first step
-            torch.logical_or(
-                torch.logical_and(
-                    torch.eq(self.prev_node, self.regions.get_end_idx()),                               # Going to end
-                    (self.position - self.regions.get_depot_end()).norm(p=2, dim=-1) <= self.time_step  # On end depot
-                ),
-                torch.logical_or(
-                    self.obs_bumped,                                                                    # No bumping
-                    self.get_remaining_length() < 0                                                     # Still on time
-                )
-            )
-        )
-
-    def get_remaining_length(self):
-        return self.max_length - self.length
-
-    def get_mask_nodes(self):
-        """
-        Gets a (batch_size, n_loc + 1) mask with the feasible actions, depends on already visited and remaining
-        capacity. 0 = feasible, 1 = infeasible. Forbids to visit depot twice in a row, unless all nodes have been
-        visited.
-        """
-        batch_ids = torch.arange(self.regions.get_batch_size(), dtype=torch.int64, device=self.device)
-        end_idx = self.regions.get_end_idx()
-
-        # Define mask (with visited nodes)
-        visited_ = self.visited.to(torch.bool)
-        mask = visited_ | visited_[..., end_idx, None]
-
-        # Block initial depot
-        mask[..., 0] = 1
-
-        # While traveling, do not change agent's mind
-        mask[self.is_traveling] = 1  # Comment this line to allow changing agent's mind (careful with lengths then)
-        mask[batch_ids[self.is_traveling], self.prev_node[self.is_traveling]] = 0
-
-        # End depot can always be visited, but once visited, cannot leave the place
-        mask[~self.is_traveling, end_idx] = 0
-        finished = self.finished()
-        mask[finished] = 1
-        mask[finished, end_idx] = 0  # Always allow visiting end depot to prevent running out of nodes to choose
-        return mask
-
-    def get_mask_actions(self):
-
-        # Initialize mask
-        mask = torch.zeros((self.regions.get_batch_size(), self.num_actions), dtype=torch.bool, device=self.device)
-
-        # Ban actions (directions) that lead out of the map | TODO: adapt for more than 4 actions
-        mask[self.position[..., 0] + self.time_step > 1, 0] = 1
-        mask[self.position[..., 1] + self.time_step > 1, 1] = 1
-        mask[self.position[..., 0] - self.time_step < 0, 2] = 1
-        mask[self.position[..., 1] - self.time_step < 0, 3] = 1
-
-        # No more restrictions are required during the first step, so return the mask
-        if self.i < 1:
-            return mask.bool()
-
-        # Avoid performing the action opposite to that performed before
-        banned_actions = self.prev_action[..., None] + self.num_actions / 2
-        banned_actions[banned_actions > self.num_actions - 1] -= self.num_actions
-        mask = mask.scatter(-1, banned_actions.long(), 1)
-        return mask.bool()
-
-    def get_dist2obs(self):
-        return (self.position[:, None] - self.obs[..., :2]).norm(dim=-1) - self.obs[..., 2]
-
-    def render(self):
-        return
+    @staticmethod
+    def denormalize(regions, min_value=0, max_value=1):
+        return regions * (max_value - min_value) + min_value

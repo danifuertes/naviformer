@@ -8,25 +8,22 @@ def set_decode_type(model, decode_type):
     model.set_decode_type(decode_type)
 
 
-def input_embed(inputs, embed, embed_depot):
+def input_embed(state, embed, embed_depot):
     """Embedding for the inputs"""
-
-    # Navigation Orienteering Problem features
-    features = ('prize',)
 
     # Input embedding of start depot (coordinates) and nodes (coordinates and prizes)
     embeddings = (
-        embed_depot(inputs['depot'])[:, None, :],
+        embed_depot(state.get_depot_ini())[:, None, :],
         embed(
             torch.cat((
-                inputs['loc'],
-                *(inputs[feat][:, :, None] for feat in features)
+                state.regions,
+                *(feature[..., None] for feature in state.get_features())
             ), dim=-1))
     )
 
     # Input embedding of end depot (coordinates)
-    if 'depot2' in inputs:
-        embeddings = embeddings + (embed_depot(inputs['depot2'])[:, None, :], )
+    if state.is_depot_end():
+        embeddings = embeddings + (embed_depot(state.get_depot_end())[:, None, :], )
 
     # Return concatenated embeddings
     return torch.cat(embeddings, dim=1)

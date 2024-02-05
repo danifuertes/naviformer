@@ -12,14 +12,14 @@ class WarmupBaseline(BasicBaseline):
         self.warmup_baseline = ExponentialBaseline(warmup_exp_beta)
         self.num_epochs = num_epochs
 
-    def eval(self, x, c, e):
+    def eval(self, x, c, s):
 
         if self.alpha == 1:
-            return self.baseline.eval(x, c, e)
+            return self.baseline.eval(x, c, s)
         if self.alpha == 0:
-            return self.warmup_baseline.eval(x, c, e)
-        v, l = self.baseline.eval(x, c, e)
-        vw, lw = self.warmup_baseline.eval(x, c, e)
+            return self.warmup_baseline.eval(x, c, s)
+        v, l = self.baseline.eval(x, c, s)
+        vw, lw = self.warmup_baseline.eval(x, c, s)
 
         # Return convex combination of baseline and of loss
         return self.alpha * v + (1 - self.alpha) * vw, self.alpha * l + (1 - self.alpha * lw)

@@ -1,4 +1,3 @@
-import copy
 import time
 import torch
 from tqdm import tqdm
@@ -6,7 +5,7 @@ from tqdm import tqdm
 from envs import load_problem
 from baselines import load_baseline
 from utils import config_logger, load_optimizer, load_lr_scheduler, resume_training, set_decode_type, \
-    get_inner_model, save_model, clip_grad_norms, log_values, get_options, validate, load_model_train, episode
+    get_inner_model, save_model, clip_grad_norms, log_values, get_options, validate, load_model_train, move_to
 
 
 def main(opts):
@@ -99,17 +98,14 @@ def main(opts):
 
             # Train one epoch
             print("Start train epoch {}, lr={}".format(epoch, optimizer.param_groups[0]['lr']))
-            for batch_id in tqdm(range(train_env.num_steps), desc='Training'.ljust(15)):
-
-                # Initialize batch of scenarios
-                state = train_env.reset()
-                state_ini = copy.deepcopy(state)
+            for batch_id, batch in enumerate(tqdm(train_env.dataloader, desc='Training'.ljust(15))):
+                batch = move_to(batch, device=opts.device)
 
                 # Run episode
-                reward, log_prob, _ = episode(model, state, train_env)
+                reward, log_prob, _ = model(batch, train_env)
 
                 # Run baseline episode
-                reward_bl, loss_bl = baseline.eval(state_ini, reward, train_env)
+                reward_bl, loss_bl = baseline.eval(batch, reward, train_env)
 
                 # Calculate loss function
                 reinforce_loss = ((reward - reward_bl) * log_prob).mean()

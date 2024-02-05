@@ -119,15 +119,36 @@ class NaviFormer(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, state, return_fixed=False):
+    def forward(self, batch, env):
+
+        # Initialize state and other info
+        state = env.get_state(batch)
+        del batch
+        done, total_reward, total_log_prob, actions = False, 0, 0, tuple()
 
         # Calculate graph embeddings during the first iteration
-        if isinstance(state['inputs'], dict):
-            embeddings = self.encoder(state['inputs'])  # Transformer encoder
-            obs = state['inputs']['obs'] if 'obs' in state['inputs'] else None
-            self.fixed_data = self.precompute(embeddings, obs)
-        else:
-            self.fixed_data = state['inputs']
+        embeddings = self.encoder(state)  # Transformer encoder
+        self.fixed_data = self.precompute(embeddings, state.obs)
+
+        # Iterate until each environment from the batch reaches a terminal state
+        while not done:
+
+            # Predict actions and (log) probabilities for current state
+            action, log_prob = self.episode(state)
+
+            # Get reward and update state based on the action predicted
+            state = state.step(action)
+            reward, done = state.reward, state.done
+
+            # Update info
+            actions = actions + (action,)
+            total_reward += reward
+            total_log_prob += log_prob
+
+        # Return reward and log probabilities
+        return total_reward, total_log_prob, torch.stack(actions, dim=1)
+
+    def episode(self, state):
 
         # Transformer decoder
         log_probs_node, selected_node, log_probs_direction, selected_direction = self.decoder(state)
@@ -140,21 +161,19 @@ class NaviFormer(nn.Module):
         log_prob_direction = self.select_log_probs(log_probs_direction, selected_direction)
         log_prob = self.combine_log_probs(log_prob_node, log_prob_direction)
 
-        # Return actions and log probabilities (and possibly fixed_data)
-        if return_fixed:
-            return actions, log_prob, self.fixed_data
+        # Return actions and log probabilities
         return actions, log_prob
 
-    def encoder(self, inputs):
+    def encoder(self, state):
 
         # Pre-trained (2-step) Transformer decoder
         if self.two_step:
-            embeddings = self.base_route_model.encoder(inputs)
+            embeddings = self.base_route_model.encoder(state)
             return embeddings
 
         # Joint Transformer encoder
-        init_embed = input_embed(inputs, self.init_embed, self.init_embed_depot)
-        init_embed = (init_embed, inputs['obs']) if self.combined_mha else (init_embed, )
+        init_embed = input_embed(state, self.init_embed, self.init_embed_depot)
+        init_embed = (init_embed, state.obs) if self.combined_mha else (init_embed, )
         h = self.embedder(*init_embed)
         embeddings = (h[0], h[2]) if self.combined_mha else h[0]
         return embeddings
@@ -209,11 +228,13 @@ class NaviFormer(nn.Module):
             log_probs_node = self.predict_node(state)
 
             # Select the indices of the next nodes in the sequences, result (batch_size) long
-            selected_node = self.select_node(log_probs_node.exp(), state['mask_nodes'])
+            selected_node = self.select_node(log_probs_node.exp(), state.get_mask_nodes())
 
         # Predict next action (direction from current position to next node to visit)
         log_probs_direction = self.predict_direction(state, selected_node)
         selected_direction = self.select_direction(log_probs_direction.exp())
+
+        # Return actions and log probabilities
         return log_probs_node, selected_node, log_probs_direction, selected_direction
 
     def predict_node(self, state, normalize=True):
@@ -226,18 +247,19 @@ class NaviFormer(nn.Module):
         query = self.fixed_data.graph_embedding_mean + self.fixed_data.obs_embedding_mean + state_embedding
 
         # Apply MHA
+        mask = state.get_mask_nodes()
         query_logit = self.mha_decoder(
             query=query,
             key=self.fixed_data.key,
             value=self.fixed_data.value,
-            mask=state['mask_nodes'],
+            mask=mask,
         )
 
         # Apply SHA
         log_probs = self.sha_decoder(
             query_logit=query_logit,
             key_logit=self.fixed_data.key_logit,
-            mask=state['mask_nodes'],
+            mask=mask,
             normalize=normalize
         )
 
@@ -249,13 +271,13 @@ class NaviFormer(nn.Module):
         """Returns the context per step, optionally for multiple steps at once (for efficient eval of the model)."""
 
         # Get current node index and expand it to (B x 1 x H) to allow gathering from embedding (B x N x H)
-        current_node = state['prev_node'].contiguous()[:, None, None].expand(-1, 1, embeddings.size(-1))
+        current_node = state.prev_node.contiguous()[:, None, None].expand(-1, 1, embeddings.size(-1))
 
         # Get embedding of current node
         last_node_embed = torch.gather(input=embeddings, dim=1, index=current_node)[:, 0]
 
         # Return context: (embedding of last node, remaining time/length, current position, distance to obstacles)
-        return torch.cat((last_node_embed, state['length'][..., None], state['position'], state['dist2obs']), dim=-1)
+        return torch.cat((last_node_embed, state.length[..., None], state.position, state.get_dist2obs()), dim=-1)
 
     def mha_decoder(self, query, key, value, mask):
         """Multi-Head Attention (MHA) mechanism"""
@@ -345,18 +367,18 @@ class NaviFormer(nn.Module):
         batch_ids = torch.arange(next_node.shape[0], dtype=torch.int64, device=next_node.device)
 
         # Get next selected goal
-        goal = state['regions'][batch_ids, next_node]
+        goal = state.get_regions()[batch_ids, next_node]
 
         # Get local maps
         maps = create_local_maps(
-            state['position'], self.fixed_data.obs_map, self.fixed_data.obs_grid, goal, self.patch_size, self.map_size
+            state.position, self.fixed_data.obs_map, self.fixed_data.obs_grid, goal, self.patch_size, self.map_size
         )
 
         # Apply prediction layers
         policy = self.path_prediction(maps)
 
         # Ban prohibited actions
-        policy[state['mask_actions']] = -math.inf
+        policy[state.get_mask_actions()] = -math.inf
 
         # Return normalized (softmax) log probabilities
         log_probs = torch.log_softmax(policy, dim=-1)

@@ -9,7 +9,7 @@ class ExponentialBaseline(BasicBaseline):
         self.beta = beta
         self.v = None
 
-    def eval(self, x, c, e):
+    def eval(self, x, c, s):
 
         if self.v is None:
             v = c.mean()

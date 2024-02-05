@@ -8,10 +8,10 @@ class CriticBaseline(BasicBaseline):
         super(BasicBaseline, self).__init__()
         self.critic = critic
 
-    def eval(self, x, c, e):
+    def eval(self, x, c, s):
 
         # Predict critic value
-        v = self.critic(x)
+        v = self.critic(x, s)
 
         # Detach v since actor should not backprop through baseline, only for loss
         return v.detach(), torch.nn.functional.mse_loss(v, c.detach())

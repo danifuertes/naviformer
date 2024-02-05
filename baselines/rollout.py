@@ -3,7 +3,7 @@ import torch
 from scipy.stats import ttest_rel
 
 from .basic import BasicBaseline
-from utils import rollout, get_inner_model, episode
+from utils import rollout, get_inner_model
 
 
 class RolloutBaseline(BasicBaseline):
@@ -41,12 +41,11 @@ class RolloutBaseline(BasicBaseline):
         self.reward_bl = rollout(self.model, self.env, desc='Baseline').cpu().numpy()
         self.mean = self.reward_bl.mean()
 
-    def eval(self, x, c, e):
-        x = e.get_state_from_batch(x['inputs'])
+    def eval(self, x, c, s):
 
         # Use volatile mode for efficient inference (single batch so we do not use rollout function)
         with torch.no_grad():
-            v, _ = episode(self.model, x, e)
+            v, _ = self.model(x, s)
 
         # There is no loss
         return v, 0

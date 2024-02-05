@@ -79,10 +79,10 @@ def rollout(model, env, desc=''):
 
     # Calculate rewards for each batch
     rewards = []
-    for _ in tqdm(range(env.num_steps), desc=desc):
-        state, _ = env.reset()
+    for batch in tqdm(env.dataloader, desc=desc):
+        batch = move_to(batch, device=env.device)
         with torch.no_grad():
-            reward, _, _ = episode(model, state, env)
+            reward, _, _ = model(batch, env)
         rewards.append(reward.data.cpu())
     return torch.cat(rewards, dim=0)
 
@@ -92,24 +92,3 @@ def validate(model, env):
     avg_cost = cost.mean()
     print(f"Validation overall avg_cost: {avg_cost} +- {torch.std(cost) / np.sqrt(len(cost))}")
     return avg_cost
-
-
-def episode(model, state, env):
-
-    # Iterate until each environment from the batch reaches a terminal state
-    done, total_reward, total_log_prob, actions = False, 0, 0, tuple()
-    while not done:
-
-        # Predict actions and (log) probabilities for current state
-        action, log_prob, fixed_data = model(state, return_fixed=True)
-
-        # Get reward and next state based on the action predicted
-        state, reward, done, info = env.step(action, fixed_data=fixed_data)
-
-        # Update info
-        actions = actions + (action, )
-        total_reward += reward
-        total_log_prob += log_prob
-
-    # Return reward and log probabilities
-    return total_reward, total_log_prob, torch.stack(actions, dim=1)
