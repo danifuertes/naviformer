@@ -3,6 +3,7 @@ import torch
 import argparse
 import numpy as np
 
+from demo.demo import demo
 from envs import load_problem
 from utils import load_model_eval, global_vars, str2bool, set_seed, plot, batch2numpy, actions2numpy, move_to
 
@@ -38,6 +39,12 @@ def arguments(args=None):
     # Agents
     parser.add_argument('--num_agents', type=int, default=1, help="Number of agents")
 
+    # RoboMaster demo
+    parser.add_argument('--demo', type=str2bool, default=False, help="True to perform demo with RoboMasters")
+    parser.add_argument('--robots', type=str, nargs='+', default=['teseo', 'perseo'], help="Indicate which robots will "
+                        "be used. Go to utils/demo_utils.py and change the SERIAL_NUMBERS dictionary to add the serial "
+                        "numbers of your robots and give them a fancy name")
+
     # Misc
     parser.add_argument('--use_cuda', type=str2bool, default=True, help="True to use CUDA")
     parser.add_argument('--dataset', type=str, default='', help='Path to load dataset. If more than one scenario in,'
@@ -61,10 +68,10 @@ def arguments(args=None):
     return opts
 
 
-def baselines(baseline, inputs):
+def compute_benchmark(opts, batch, **kwargs):
 
     # Get baseline algorithms
-    route_planner, path_planner = baseline.split('-')
+    route_planner, path_planner = opts.model.split('-')
     runs, route_planner = get_runs(route_planner)
     assert route_planner in ROUTE_PLANNERS, f"'{route_planner}' not in route planners list: {ROUTE_PLANNERS}"
     assert path_planner in PATH_PLANNERS,   f"'{path_planner}' not in route planners list: {PATH_PLANNERS}"
@@ -79,18 +86,18 @@ def baselines(baseline, inputs):
     model_name = route_name + '-' + path_name
 
     # Prepare inputs
-    inputs = inputs2numpy(inputs, True)
+    batch = batch2numpy(batch, True)
 
     # Calculate tours
     _, tour, _, success = solve_nav_op(
         directory=None,
         name=None,
-        depot=inputs['depot'],
-        loc=inputs['loc'],
-        prize=inputs['prize'],
-        max_length=inputs['max_length'],
-        depot2=inputs['depot2'],
-        obs=inputs['obs'],
+        depot=batch['depot'],
+        loc=batch['loc'],
+        prize=batch['prize'],
+        max_length=batch['max_length'],
+        depot2=batch['depot2'],
+        obs=batch['obs'],
         route_planner=route_planner,
         path_planner=path_planner,
         disable_cache=False,
@@ -98,12 +105,36 @@ def baselines(baseline, inputs):
     )
 
     # Lists to numpy arrays
-    if isinstance(inputs, dict):
-        for k, v in inputs.items():
-            inputs[k] = np.array(v)
+    if isinstance(batch, dict):
+        for k, v in batch.items():
+            batch[k] = np.array(v)
     else:
-        inputs = np.array(inputs)
-    return np.array(tour).squeeze()[None], inputs, model_name, success
+        batch = np.array(batch)
+    return np.array(tour).squeeze()[None], batch, model_name, success
+
+
+def compute_network(opts, batch, env, device, **kwargs):
+
+    # Load model (Transformer, PN, GPN) for evaluation on the chosen device
+    model, args = load_model_eval(opts.model)
+    model.to(device)
+    model_name = args['fancy_name']
+
+    # Inputs to device
+    batch = move_to(batch, device)
+
+    # Calculate tours
+    with torch.no_grad():
+        _, _, actions, _ = model(batch, env)
+
+    # Inputs to numpy
+    batch = batch2numpy(batch)
+
+    # Tours to numpy
+    end_ids = 0 if opts.num_depots == 1 else opts.num_nodes + 1
+    actions = actions2numpy(actions, end_ids)
+    success = True
+    return actions, batch, model_name, success
 
 
 def main(opts):
@@ -133,32 +164,11 @@ def main(opts):
     # Load batch
     batch = next(iter(env.dataloader))
 
-    # Use baseline instead of a trained model
-    if not os.path.exists(opts.model):
-        actions, batch, model_name, success = baselines(opts.model, batch)
-
-    # Use trained model
-    else:
-
-        # Load model (Transformer, PN, GPN) for evaluation on the chosen device
-        model, args = load_model_eval(opts.model)
-        model.to(device)
-        model_name = args['fancy_name']
-
-        # Inputs to device
-        batch = move_to(batch, device)
-
-        # Calculate tours
-        with torch.no_grad():
-            _, _, actions, _ = model(batch, env)
-
-        # Inputs to numpy
-        batch = batch2numpy(batch)
-
-        # Tours to numpy
-        end_ids = 0 if opts.num_depots == 1 else opts.num_nodes + 1
-        actions = actions2numpy(actions, end_ids)
-        success = True
+    # Use benchmark algorithm or trained model
+    method = compute_network if os.path.exists(opts.model) else compute_benchmark
+    
+    # Apply algorithm
+    actions, batch, model_name, success = method(opts, batch, env, device)
 
     # Print results
     if isinstance(actions, list):
@@ -171,6 +181,10 @@ def main(opts):
     if opts.num_agents == 1:
         actions = [actions]
     plot(actions, batch, env.name, model_name, data_dist=opts.data_dist, success=success)
+
+    # RoboMaster demo
+    if opts.demo:
+        demo(opts.robots, actions, batch['depot_ini'])
 
 
 if __name__ == "__main__":

@@ -60,7 +60,7 @@ class NopDataset(Dataset):
                 # Create DataLoader to generate batches of data
                 from torch.utils.data import DataLoader
                 torch.multiprocessing.set_sharing_strategy('file_system')
-                batch_size, num_workers, self.data, count = 1024, 16, [], num_samples
+                batch_size, num_workers, self.data, count = 1024, 16, [], num_samples  # TODO: num_workers=16 may fail
                 dataloader = DataLoader(NopInstance(num_samples, **params), batch_size, num_workers=num_workers)
 
                 # Save batches into data list

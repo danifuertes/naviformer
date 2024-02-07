@@ -1,6 +1,12 @@
 import random
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.interpolate import splprep, splev
+
+
+def path_smoothing(path):
+    tck, *rest = splprep(path, s=0.005)
+    return np.array(splev(np.linspace(0, 1, num=path.shape[1]), tck))
 
 
 def assign_colors(n):

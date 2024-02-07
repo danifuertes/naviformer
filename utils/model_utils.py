@@ -47,7 +47,7 @@ def save_model(model, optimizer, baseline, save_dir, epoch):
             'cuda_rng_state': torch.cuda.get_rng_state_all(),
             'baseline': baseline.state_dict()
         },
-        os.path.join(save_dir, 'epoch-{}.pt'.format(epoch))
+        os.path.join(save_dir, f"epoch-{str(epoch).zfill(3)}.pt")
     )
 
 
@@ -119,7 +119,7 @@ def load_model_eval(path, epoch=None, kwargs=None, ensure_instance='', decode='g
                 for filename in os.listdir(path)
                 if os.path.splitext(filename)[1] == '.pt'
             )
-        model_filename = os.path.join(path, 'epoch-{}.pt'.format(epoch))
+        model_filename = os.path.join(path, f"epoch-{str(epoch).zfill(3)}.pt")
     else:
         assert False, f"{path} is not a valid directory or file"
 
