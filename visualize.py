@@ -165,9 +165,11 @@ def main(opts):
         for i, action in enumerate(actions):
             print(f"Agent {i + 1} - Nodes: {action[0]}\n Directions: {action[1]}")
     else:
-        print(f"Nodes: {actions[0]}\n Directions: {actions[1]}")
+        print(f"Nodes: {actions.transpose(1, 0)[0]}\n Directions: {actions.transpose(1, 0)[1]}")
 
     # Plot results
+    if opts.num_agents == 1:
+        actions = [actions]
     plot(actions, batch, env.name, model_name, data_dist=opts.data_dist, success=success)
 
 

@@ -62,5 +62,4 @@ def actions2numpy(actions, end_ids):
                 out[-1] = np.concatenate((out[-1], [end_ids]), axis=-1)
     else:
         out = actions.cpu().detach().numpy().squeeze(0)
-        out = out.transpose(1, 0)
     return out
