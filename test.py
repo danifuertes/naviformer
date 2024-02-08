@@ -1,12 +1,7 @@
-import os
+import time
 
 from utils import *
 from envs import load_problem, print_results
-
-
-PROBLEMS = global_vars()['PROBLEMS']
-DATA_DIST = global_vars()['DATA_DIST']
-DECODE_STRATEGY = global_vars()['DECODE_STRATEGY']
 
 
 def get_options():
@@ -31,14 +26,11 @@ def get_options():
     parser.add_argument('--num_workers', type=int, default=16, help="Number of parallel workers loading data batches")
     opts = parser.parse_args()
 
-    # Check options are correct
-    assert opts.batch_size > 0,                      f"eval_batch_size must be positive, found: {opts.batch_size}"
-    assert opts.num_workers >= 0,                    f"num_workers must be non negative, found: {opts.num_workers}"
-    assert opts.decode_strategy in DECODE_STRATEGY,  f"'{opts.decode_strategy}' not in strategy list: {DECODE_STRATEGY}"
-    assert opts.o is None or len(opts.datasets) == 1, "Cannot specify result filename with more than one dataset"
-
     # Use CUDA or CPU
     opts.use_cuda = torch.cuda.is_available() and opts.use_cuda
+
+    # Check options are correct
+    check_test_options(opts)
     return opts
 
 

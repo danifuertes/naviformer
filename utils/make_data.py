@@ -1,10 +1,9 @@
 import os
 import argparse
-import numpy as np
 from pathlib import Path
 
 from envs import load_dataset
-from utils import save_dataset, set_seed, global_vars
+from utils import save_dataset, set_seed, global_vars, check_make_data_options
 
 
 PROBLEMS = global_vars()['PROBLEMS']
@@ -46,25 +45,14 @@ def get_options():
     parser.add_argument("--data_dir", default='data', help="Create datasets in data_dir/problem (default 'data')")
     opts = parser.parse_args()
 
-    # Check options are correct
-    assert opts.seed >= 0,                          f"seed must be non-negative, found {opts.seed}"
-    assert opts.problem in PROBLEMS,                f"'{opts.problem}' not in problem list: {PROBLEMS}"
-    assert np.all(np.array(opts.num_nodes) > 0),    f"num_nodes must be positive, found: {opts.num_nodes}"
-    assert opts.num_depots in [1, 2],               f"num_depots must be 1 or 2, found: {opts.num_depots}"
-    assert np.all(np.array(opts.max_length) > 0),   f"max_length must be positive, found: {opts.max_length}"
-    assert opts.max_obs >= 0,                       f"max_obs must be non-negative, found: {opts.max_obs}"
-    assert opts.max_nodes == 0 or opts.max_nodes >= 10, \
-        f"max_nodes must be non-negative and considerably large (>= 10), found: {opts.max_nodes}"
-    assert len(opts.num_nodes) == len(opts.max_length), \
-        f"num_nodes and max_length must have same length, found {opts.num_nodes} and {opts.max_length}"
-    for dist in opts.data_dist:
-        assert dist in DATA_DIST,                   f"'{dist}' not in data_dist list: {DATA_DIST}"
-
     # Data dir should be relative to project working dir, not to current dir (utils)
     opts.data_dir = os.path.join(Path(__file__).parent.parent, opts.data_dir)
 
-    # Set seed
+    # Set seed for reproducibility
     set_seed(opts.seed)
+
+    # Check options are correct
+    check_make_data_options(opts)
     return opts
 
 

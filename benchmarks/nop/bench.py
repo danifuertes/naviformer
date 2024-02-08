@@ -3,10 +3,7 @@ from envs import print_results
 from benchmarks import get_runs, multiprocessing, solve_nop
 
 
-MAX_LENGTH_TOL = 1e-5
 PROBLEMS = global_vars()['PROBLEMS']
-ROUTE_PLANNERS = global_vars()['ROUTE_PLANNERS']
-PATH_PLANNERS = global_vars()['PATH_PLANNERS']
 
 
 def get_options():
@@ -36,17 +33,16 @@ def get_options():
     parser.add_argument('--progress_bar_mininterval', type=float, default=0.1, help='Minimum interval')
     opts = parser.parse_args()
 
+    # Get chosen local search runs
+    opts.runs, opts.route_planner = get_runs(opts.route_planner)
+
     # Check options are correct
-    opts.runs, opts.route_planner = get_runs(opts.route_planner)  # Local search runs
-    assert opts.route_planner in ROUTE_PLANNERS, f"'{opts.route_planner}' not in route planners list: {ROUTE_PLANNERS}"
-    assert opts.path_planner in PATH_PLANNERS, f"'{opts.path_planner}' not in route planners list: {PATH_PLANNERS}"
-    assert opts.o is None or len(opts.datasets) == 1, f"Cannot specify result filename with more than one dataset"
-    assert opts.problem, f"'{opts.problem}' not in problem list: {PROBLEMS}"
+    check_nop_benchmark_options(opts)
     return opts
 
 
-# Initialize run function for multiprocessing
 def run_func(args, **kwargs):
+    # Initialize run function for multiprocessing
     return solve_nop(*args, **kwargs)
 
 

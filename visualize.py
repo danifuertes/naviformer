@@ -1,16 +1,10 @@
-import os
-import torch
-import argparse
-import numpy as np
-
+from utils import *
 from demo.demo import demo
 from envs import load_problem
-from utils import load_model_eval, global_vars, str2bool, set_seed, plot, batch2numpy, actions2numpy, move_to
 
 
 PROBLEMS = global_vars()['PROBLEMS']
 DATA_DIST = global_vars()['DATA_DIST']
-MODELS = global_vars()['MODELS']
 ROUTE_PLANNERS = global_vars()['ROUTE_PLANNERS']
 PATH_PLANNERS = global_vars()['PATH_PLANNERS']
 
@@ -50,21 +44,15 @@ def arguments(args=None):
     parser.add_argument('--dataset', type=str, default='', help='Path to load dataset. If more than one scenario in,'
                         'the dataset, only the first one is used. If None, a random one is generated')
     opts = parser.parse_args(args)
-    opts.use_cuda = torch.cuda.is_available() and opts.use_cuda
 
-    # Check options are correct
-    assert opts.seed >= 0,              f"seed must be non-negative, found {opts.seed}"
-    assert opts.problem in PROBLEMS,    f"'{opts.problem}' not in problem list: {PROBLEMS}"
-    assert opts.num_agents > 0,         f"num_agents must be positive, found: {opts.num_agents}"
-    assert opts.num_nodes > 0,          f"num_nodes must be positive, found: {opts.num_nodes}"
-    assert opts.max_nodes >= 0,         f"max_nodes must be non-negative, found: {opts.max_nodes}"
-    assert opts.num_depots in [1, 2],   f"num_depots must be 1 or 2, found: {opts.num_depots}"
-    assert opts.max_length > 0,         f"max_length must be positive, found: {opts.max_length}"
-    assert opts.data_dist in DATA_DIST, f"'{opts.data_dist}' not in data_dist list: {DATA_DIST}"
-    assert opts.max_obs >= 0,           f"max_obs must be non-negative, found: {opts.max_obs}"
+    # Use CUDA or CPU
+    opts.use_cuda = torch.cuda.is_available() and opts.use_cuda
 
     # Set seed for reproducibility
     set_seed(opts.seed)
+
+    # Check options are correct
+    check_visualize_options(opts)
     return opts
 
 
