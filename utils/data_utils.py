@@ -1,12 +1,27 @@
 import os
 import pickle
 import numpy as np
+from pathlib import Path
 
 
 def parse_softmax_temp(raw_temp):
     if os.path.isfile(raw_temp):
         return np.loadtxt(raw_temp)[-1, 0]
     return float(raw_temp)
+
+
+def get_results_file(opts, dataset_path, problem_name, model_name):
+
+    # Prepare data dir to save results
+    dataset_name, ext = os.path.splitext(dataset_path.replace('/', '_'))
+    if opts.o is None:
+        results_dir = os.path.join(opts.results_dir, problem_name, dataset_name)  # TODO: should use absolute path
+        results_file = os.path.join(results_dir, model_name)
+    else:
+        results_file = opts.o
+        results_dir = Path(results_file).parent
+    assert opts.f or not os.path.isfile(results_file), "File already exists! Try running with -f option to overwrite."
+    return results_file, results_dir
 
 
 def check_extension(filename):

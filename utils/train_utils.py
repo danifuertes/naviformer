@@ -1,4 +1,3 @@
-import os
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -43,18 +42,17 @@ def load_optimizer(opts, model, baseline, load_data):
     return optimizer
 
 
-def resume_training(opts, model, baseline, load_data):
+def resume_training(opts, model, baseline, load_data, epoch=0):
 
     # Resume training
-    epoch_resume = int(os.path.splitext(os.path.split(opts.resume)[-1])[0].split("-")[1])
     torch.set_rng_state(load_data['rng_state'])
     if opts.use_cuda:
         torch.cuda.set_rng_state_all(load_data['cuda_rng_state'])
 
     # Set the random states. Dumping of state was done before epoch callback, so do that now (model is loaded)
-    baseline.epoch_callback(model, epoch_resume)
-    print("Resuming after {}".format(epoch_resume))
-    opts.epoch_start = epoch_resume + 1
+    baseline.epoch_callback(model, epoch)
+    print("Resuming after {}".format(epoch))
+    opts.epoch_start = epoch + 1
     return opts, model, baseline
 
 

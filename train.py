@@ -15,7 +15,8 @@ def main(opts):
     problem = load_problem(opts.problem)
 
     # Load model
-    model, load_data = load_model_train(opts)
+    model, load_data, first_epoch = load_model_train(opts)
+    first_epoch = first_epoch if first_epoch > 0 else opts.first_epoch
 
     # Load baseline
     baseline = load_baseline(opts, model, problem, load_data)
@@ -28,7 +29,7 @@ def main(opts):
 
     # Resume training
     if opts.resume:
-        opts, model, baseline = resume_training(opts, model, baseline, load_data)
+        opts, model, baseline = resume_training(opts, model, baseline, load_data, epoch=first_epoch)
 
     # Load validation env
     val_env = problem(
@@ -52,7 +53,7 @@ def main(opts):
 
     # Train
     else:
-        for epoch in range(opts.first_epoch, opts.first_epoch + opts.epochs):
+        for epoch in range(first_epoch, opts.first_epoch + opts.epochs):
 
             # Measure training time
             start_time = time.time()

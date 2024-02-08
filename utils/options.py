@@ -67,10 +67,6 @@ def get_options(args=None):
     parser.add_argument('--max_grad_norm', type=float, default=1.0,
                         help="Maximum L2 norm for gradient clipping, default 1.0 (0 to disable clipping)")
     parser.add_argument('--exp_beta', type=float, default=0.8, help="Exponential moving average baseline decay")
-    parser.add_argument('--checkpoint_enc', type=str2bool, default=False,
-                        help="Set to decrease memory usage by checkpointing encoder")
-    parser.add_argument('--shrink_size', type=int, default=None, help="Shrink the batch size if at least this many"
-                        "instances in the batch are finished to save memory (default None means no shrinking)")
 
     # Baseline
     parser.add_argument('--baseline', type=str, default=None, help=f"Baseline to train with: ','.join({BASELINES})")
@@ -159,8 +155,6 @@ def check_options(opts):
     assert opts.epoch_size % opts.batch_size == 0, f"epoch_size must be multiple of batch_size, found {opts.epoch_size}"
     assert opts.combined_mha and opts.max_obs or not opts.combined_mha, \
         f"If combined_mha=True, then it is required that max_obs > 0"
-    if opts.shrink_size is not None:
-        assert opts.shrink_size > 0,    f"shrink_size must be positive, found: {opts.shrink_size}"
     if os.path.isdir(opts.two_step) or opts.two_step.endswith('.pkl') or opts.two_step_train:
         if opts.two_step_train:
             assert opts.problem == 'op', "To train a 2-step route planner, try with option --problem op"

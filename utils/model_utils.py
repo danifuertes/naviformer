@@ -38,6 +38,27 @@ def load_file(load_path, model):
     return model, load_optimizer_state_dict
 
 
+def load_file_or_dir(path, epoch=None):
+
+    # Path indicates the saved epoch
+    if os.path.isfile(path):
+        model_filename = path
+        path = os.path.dirname(model_filename)
+
+    # Path indicates the directory where epochs are saved
+    elif os.path.isdir(path):
+        if epoch is None:
+            epoch = max(
+                int(os.path.splitext(filename)[0].split("-")[1])
+                for filename in os.listdir(path)
+                if os.path.splitext(filename)[1] == '.pt'
+            )
+        model_filename = os.path.join(path, f"epoch-{str(epoch).zfill(3)}.pt")
+    else:
+        assert False, f"{path} is not a valid directory or file"
+    return model_filename, path, epoch + 1
+
+
 def save_model(model, optimizer, baseline, save_dir, epoch):
     torch.save(
         {
@@ -66,7 +87,6 @@ def load_model_train(opts, ensure_instance='', two_step=''):
         num_blocks=opts.num_blocks,
         normalization=opts.normalization,
         tanh_clipping=opts.tanh_clipping,
-        checkpoint_encoder=opts.checkpoint_enc,
         max_obs=opts.max_obs,
         combined_mha=opts.combined_mha,
         two_step=opts.two_step
@@ -91,37 +111,24 @@ def load_model_train(opts, ensure_instance='', two_step=''):
         model = torch.nn.DataParallel(model)
 
     # Load data
-    load_data = {}
+    load_data, first_epoch = {}, 0
     assert opts.load_path is None or opts.resume is None, "Only one of load path and resume can be given"
     load_path = opts.load_path if opts.load_path is not None else opts.resume
     if load_path is not None:
-        print('  [*] Loading data from {}'.format(load_path))
-        load_data = load_cpu(load_path)
+        model_filename, _, first_epoch = load_file_or_dir(path=load_path)
+        print(f"  [*] Loading data from {model_filename}")
+        load_data = load_cpu(model_filename)
 
     # Overwrite model parameters by parameters to load
     model_ = get_inner_model(model)
     model_.load_state_dict({**model_.state_dict(), **load_data.get('model', {})})
-    return model, load_data
+    return model, load_data, first_epoch
 
 
 def load_model_eval(path, epoch=None, kwargs=None, ensure_instance='', decode='greedy', temp=None):
 
-    # Path indicates the saved epoch
-    if os.path.isfile(path):
-        model_filename = path
-        path = os.path.dirname(model_filename)
-
-    # Path indicates the directory where epochs are saved
-    elif os.path.isdir(path):
-        if epoch is None:
-            epoch = max(
-                int(os.path.splitext(filename)[0].split("-")[1])
-                for filename in os.listdir(path)
-                if os.path.splitext(filename)[1] == '.pt'
-            )
-        model_filename = os.path.join(path, f"epoch-{str(epoch).zfill(3)}.pt")
-    else:
-        assert False, f"{path} is not a valid directory or file"
+    # Get model filename
+    model_filename, path, _ = load_file_or_dir(path=path, epoch=epoch)
 
     # Load arguments
     args = load_args(os.path.join(path, 'args.json'))

@@ -1,4 +1,4 @@
-import os.path
+import os
 
 from utils import *
 from envs import load_problem, print_results
@@ -57,26 +57,20 @@ def main(opts):
     problem = load_problem(problem_name)
 
     # Test on each dataset
-    for dataset in opts.datasets:
+    for dataset_path in opts.datasets:
         results = [[] for _ in range(5)]
 
-        # Prepare data dir to save results
-        dataset_name, ext = os.path.splitext(dataset.replace('/', '_'))
-        if opts.o is None:
-            results_dir = os.path.join(opts.results_dir, problem_name, dataset_name)
-            os.makedirs(results_dir, exist_ok=True)
-            out_file = os.path.join(results_dir, model_name)
-        else:
-            out_file = opts.o
-        assert opts.f or not os.path.isfile(out_file), "File already exists! Try running with -f option to overwrite."
+        # Output filename to save results
+        out_file, out_dir = get_results_file(opts, dataset_path, problem_name, model_name)
+        os.makedirs(out_dir, exist_ok=True)
 
         # Load test env
-        print(f"Test dataset {dataset}:")
+        print(f"Test dataset {dataset_path}:")
         test_env = problem(
             batch_size=opts.batch_size,
             num_workers=opts.num_workers,
             device=device,
-            filename=dataset,
+            filename=dataset_path,
             desc='Load data'
         )
 
