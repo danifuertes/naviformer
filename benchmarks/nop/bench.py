@@ -1,12 +1,18 @@
 from utils import *
 from envs import print_results
-from benchmarks import get_runs, multiprocessing, solve_nop
+from benchmarks import parse_runs, multiprocessing, solve_nop
 
 
 PROBLEMS = global_vars()['PROBLEMS']
 
 
-def get_options():
+def get_options() -> argparse.Namespace:
+    """
+    Parse command line arguments and return options.
+
+    Returns:
+        argparse.Namespace: Parsed arguments as a namespace object.
+    """
     parser = argparse.ArgumentParser()
 
     # Problem
@@ -34,19 +40,31 @@ def get_options():
     opts = parser.parse_args()
 
     # Get chosen local search runs
-    opts.runs, opts.route_planner = get_runs(opts.route_planner)
+    opts.runs, opts.route_planner = parse_runs(opts.route_planner)
 
     # Check options are correct
     check_nop_benchmark_options(opts)
     return opts
 
 
-def run_func(args, **kwargs):
+def run_func(args, **kwargs) -> Tuple:
+    """
+    Initialize the run function for multiprocessing.
+
+    Returns:
+        Any: Result of the function execution.
+    """
     # Initialize run function for multiprocessing
     return solve_nop(*args, **kwargs)
 
 
-def main(opts):
+def main(opts) -> None:
+    """
+    Main function for running Navigation Orienteering Problem (NOP) benchmarks.
+
+    Args:
+        opts (argparse.Namespace): Parsed command-line arguments.
+    """
 
     # For each dataset
     for dataset_path in opts.datasets:

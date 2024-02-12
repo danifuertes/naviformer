@@ -4,12 +4,13 @@ from typing import Any, Tuple
 
 class BasicBaseline(object):
 
-    def eval(self, x: dict, c: torch.Tensor, e: Any) -> Tuple[torch.Tensor | float, torch.Tensor | float]:
+    def eval(self, x: dict | torch.Tensor, c: torch.Tensor, e: Any) -> \
+            Tuple[torch.Tensor | float, torch.Tensor | float]:
         """
         Evaluate the baseline.
 
         Args:
-            x (dict): Input batch.
+            x (dict or torch.Tensor): Input batch.
             c (torch.Tensor): Cost (negative reward) found by the model.
             e (Any): Environment.
 
@@ -58,12 +59,13 @@ class BasicBaseline(object):
 
 class NoBaseline(BasicBaseline):
 
-    def eval(self, x: dict, c: torch.Tensor, e: Any) -> Tuple[torch.Tensor | float, torch.Tensor | float]:
+    def eval(self, x: dict | torch.Tensor, c: torch.Tensor, e: Any) -> \
+            Tuple[torch.Tensor | float, torch.Tensor | float]:
         """
         Evaluate the baseline.
 
         Args:
-            x (dict): Input batch.
+            x (dict or torch.Tensor): Input batch.
             c (torch.Tensor): Cost (negative reward) found by the model.
             e (Any): Environment.
 

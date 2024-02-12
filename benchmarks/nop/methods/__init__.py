@@ -1,1 +1,1 @@
-from .benchmark_utils import get_runs, multiprocessing, solve_nop
+from .bench_utils import parse_runs, multiprocessing, solve_nop

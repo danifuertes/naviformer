@@ -23,12 +23,13 @@ class WarmupBaseline(BasicBaseline):
         self.warmup_baseline = ExponentialBaseline(warmup_exp_beta)
         self.num_epochs = num_epochs
 
-    def eval(self, x: dict, c: torch.Tensor, e: Any) -> Tuple[torch.Tensor | float, torch.Tensor | float]:
+    def eval(self, x: dict | torch.Tensor, c: torch.Tensor, e: Any) -> \
+            Tuple[torch.Tensor | float, torch.Tensor | float]:
         """
         Evaluate the baseline.
 
         Args:
-            x (dict): Input batch.
+            x (dict or torch.Tensor): Input batch.
             c (torch.Tensor): Cost (negative reward) found by the model.
             e (Any): Environment.
 
@@ -36,11 +37,11 @@ class WarmupBaseline(BasicBaseline):
             tuple: Tuple containing the baseline value and the loss.
         """
         if self.alpha == 1:
-            return self.baseline.eval(x, c, s)
+            return self.baseline.eval(x, c, e)
         if self.alpha == 0:
-            return self.warmup_baseline.eval(x, c, s)
-        v, l = self.baseline.eval(x, c, s)
-        vw, lw = self.warmup_baseline.eval(x, c, s)
+            return self.warmup_baseline.eval(x, c, e)
+        v, l = self.baseline.eval(x, c, e)
+        vw, lw = self.warmup_baseline.eval(x, c, e)
 
         # Return convex combination of baseline and of loss
         return self.alpha * v + (1 - self.alpha) * vw, self.alpha * l + (1 - self.alpha * lw)

@@ -3,6 +3,7 @@ import torch
 import pickle
 import numpy as np
 from tqdm import tqdm
+from typing import Tuple
 from datetime import timedelta
 from torch.utils.data import Dataset
 
@@ -10,9 +11,35 @@ from utils import load_dataset
 
 
 class NopDataset(Dataset):
+    """
+    Dataset class for the Navigation Orienteering Problem (NOP).
 
-    def __init__(self, num_nodes=20, num_depots=1, max_length=2., max_nodes=0, max_obs=0, data_dist='const',
-                 num_samples=1000000, offset=0, filename='', desc='', **kwargs):
+    Args:
+        num_nodes (int): Number of nodes.
+        num_depots (int): Number of depots.
+        max_length (float): Maximum length.
+        max_nodes (int): Maximum number of nodes.
+        max_obs (int): Maximum number of obstacles.
+        data_dist (str): Data distribution ('const', 'unif', or 'dist').
+        num_samples (int): Number of samples.
+        offset (int): Offset.
+        filename (str): File name.
+        desc (str): Description.
+    """
+
+    def __init__(self,
+                 num_nodes: int = 20,
+                 num_depots: int = 1,
+                 max_length: float = 2.,
+                 max_nodes: int = 0,
+                 max_obs: int = 0,
+                 data_dist: str = 'const',
+                 num_samples: int = 1000000,
+                 offset: int = 0,
+                 filename: str = '',
+                 desc: str = '',
+                 **kwargs) -> None:
+        """Initialize NopDataset with the given parameters."""
         super(NopDataset, self).__init__()
 
         # Load dataset from file
@@ -76,16 +103,33 @@ class NopDataset(Dataset):
             else:
                 self.data = [generate_instance(**params) for _ in tqdm(range(num_samples), desc=desc.ljust(15))]
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Return the number of samples in the dataset."""
         return len(self.data)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> dict | torch.Tensor:
+        """Get a sample from the dataset at the given index."""
         return self.data[idx]
 
 
 class NopDatasetLarge(Dataset):
+    """
+    Dataset class for large instances of the Navigation Orienteering Problem (NOP).
 
-    def __init__(self, filename=None, distribution='coop', num_depots=1, max_obs=0, **kwargs):
+    Args:
+        filename (str): File name.
+        distribution (str): Data distribution.
+        num_depots (int): Number of depots.
+        max_obs (int): Maximum number of obstacles.
+    """
+
+    def __init__(self,
+                 filename: str | None = None,
+                 distribution: str = 'coop',
+                 num_depots: int = 1,
+                 max_obs: int = 0,
+                 **kwargs) -> None:
+        """Initialize NopDatasetLarge with the given parameters."""
         super(NopDatasetLarge, self).__init__()
         assert distribution is not None, "Data distribution must be specified for OP"
         assert os.path.splitext(filename)[1] == '.pkl' or os.path.isdir(filename)
@@ -97,10 +141,12 @@ class NopDatasetLarge(Dataset):
         print('Loading dataset...')
         self.size = len(os.listdir(filename))
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Return the number of samples in the dataset."""
         return self.size
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> dict:
+        """Get a sample from the dataset at the given index."""
         data = load_dataset(os.path.join(self.filename, str(idx).zfill(9)))
         elements = ['depot_ini', 'depot_end', 'loc', 'prize', 'max_length']
         if self.max_obs:
@@ -110,8 +156,28 @@ class NopDatasetLarge(Dataset):
 
 
 class NopInstance(Dataset):
+    """
+    Instance class for the Navigation Orienteering Problem (NOP).
 
-    def __init__(self, num_samples, num_nodes, data_dist, num_depots, max_length, max_obs, max_nodes):
+    Args:
+        num_samples (int): Number of samples.
+        num_nodes (int): Number of nodes.
+        data_dist (str): Data distribution.
+        num_depots (int): Number of depots.
+        max_length (float): Maximum length.
+        max_obs (int): Maximum number of obstacles.
+        max_nodes (int): Maximum number of nodes.
+    """
+
+    def __init__(self,
+                 num_samples: int,
+                 num_nodes: int,
+                 data_dist: str,
+                 num_depots: int,
+                 max_length: float,
+                 max_obs: int,
+                 max_nodes: int) -> None:
+        """Initialize NopInstance with the given parameters."""
         super(NopInstance, self).__init__()
         self.num_samples = num_samples
         self.num_nodes = num_nodes
@@ -121,10 +187,12 @@ class NopInstance(Dataset):
         self.max_nodes = max_nodes
         self.max_obs = max_obs
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Return the number of samples in the dataset."""
         return self.num_samples
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: int) -> dict | torch.Tensor:
+        """Get a sample from the dataset at the given index."""
         return generate_instance(
             num_nodes=self.num_nodes,
             data_dist=self.data_dist,
@@ -135,7 +203,26 @@ class NopInstance(Dataset):
         )
 
 
-def generate_instance(num_nodes, data_dist, num_depots=1, max_length=2., max_nodes=0, max_obs=0):
+def generate_instance(num_nodes: int,
+                      data_dist: str,
+                      num_depots: int = 1,
+                      max_length: float = 2.,
+                      max_nodes: int = 0,
+                      max_obs: int = 0) -> dict:
+    """
+    Generate an instance (scenario) of the Navigation Orienteering Problem (NOP).
+
+    Args:
+        num_nodes (int): Number of nodes.
+        data_dist (str): Data distribution ('const', 'unif', or 'dist').
+        num_depots (int): Number of depots.
+        max_length (float): Maximum length.
+        max_nodes (int): Maximum number of nodes.
+        max_obs (int): Maximum number of obstacles.
+
+    Returns:
+        dict: Instance dictionary.
+    """
 
     # Obstacles
     obs = generate_obstacles(max_obs) if max_obs else None
@@ -177,7 +264,19 @@ def generate_instance(num_nodes, data_dist, num_depots=1, max_length=2., max_nod
     return dictionary
 
 
-def generate_obstacles(max_obs=5, min_obs=0, r_max=0.2, r_min=0.05):
+def generate_obstacles(max_obs: int = 5, min_obs: int = 0, r_max: float = 0.2, r_min: float = 0.05) -> torch.Tensor:
+    """
+    Generate obstacles.
+
+    Args:
+        max_obs (int): Maximum number of obstacles.
+        min_obs (int): Minimum number of obstacles.
+        r_max (float): Maximum radius.
+        r_min (float): Minimum radius.
+
+    Returns:
+        torch.Tensor: Obstacles.
+    """
 
     # Number of obstacles
     num_obs = torch.randint(low=min_obs, high=max_obs + 1, size=[1])[0]
@@ -198,7 +297,19 @@ def generate_obstacles(max_obs=5, min_obs=0, r_max=0.2, r_min=0.05):
     return obstacles
 
 
-def generate_regions(num_nodes, num_depots=1, obs=None):
+def generate_regions(num_nodes: int, num_depots: int = 1, obs: torch.Tensor | None = None) -> \
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generate regions.
+
+    Args:
+        num_nodes (int): Number of nodes.
+        num_depots (int): Number of depots.
+        obs (torch.Tensor): Obstacles.
+
+    Returns:
+        tuple: Regions, initial depot, and end depot.
+    """
     num_nodes = num_nodes + 1 if num_depots == 1 else num_nodes + 2
 
     # No obstacles
@@ -235,7 +346,13 @@ def generate_regions(num_nodes, num_depots=1, obs=None):
     return loc, depot_ini, depot_end
 
 
-def print_nop_results(results):
+def print_nop_results(results: tuple) -> None:
+    """
+    Print NOP results.
+
+    Args:
+        results (tuple): Results tuple with reward, actions, success, duration, num_nodes, and parallelism.
+    """
 
     # Get results info
     reward, actions, success, duration, num_nodes, parallelism = results

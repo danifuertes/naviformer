@@ -60,12 +60,13 @@ class RolloutBaseline(BasicBaseline):
         self.reward_bl = rollout(self.model, self.env, desc='Baseline').cpu().numpy()
         self.mean = self.reward_bl.mean()
 
-    def eval(self, x: dict, c: torch.Tensor, e: Any) -> Tuple[torch.Tensor | float, torch.Tensor | float]:
+    def eval(self, x: dict | torch.Tensor, c: torch.Tensor, e: Any) -> \
+            Tuple[torch.Tensor | float, torch.Tensor | float]:
         """
         Evaluate the baseline.
 
         Args:
-            x (dict): Input batch.
+            x (dict or torch.Tensor): Input batch.
             c (torch.Tensor): Cost (negative reward) found by the model.
             e (Any): Environment.
 

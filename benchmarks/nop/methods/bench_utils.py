@@ -1,21 +1,38 @@
 import os
 import re
 import time
+import argparse
+
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
+from typing import Tuple, Any
 from multiprocessing import Pool
 from multiprocessing.dummy import Pool as ThreadPool
 
-from utils import save_dataset, load_dataset
 from .a_star import AStar
 from .d_star import DStar
 from .d_star_lite import DStarLite
 from .ortools import solve_op_ortools
 from .genetic import solve_op_genetic
+from utils import save_dataset, load_dataset
 
 
-def calc_cost_dist(tour, coords, prize, end_id, success):
+def calc_cost_dist(tour: np.ndarray, coords: np.ndarray, prize: np.ndarray, end_id: int, success: bool) -> \
+        Tuple[float, float]:
+    """
+    Calculate cost (negative reward) and distance for a tour.
+
+    Args:
+        tour (numpy.ndarray): Tour.
+        coords (numpy.ndarray): Coordinates.
+        prize (numpy.ndarray): Prize values.
+        end_id (int): ID of the end.
+        success (bool): Whether the tour is successful.
+
+    Returns:
+        tuple: Cost and distance.
+    """
     cost = 0
     distance = 0
     for t in np.unique(tour):
@@ -35,7 +52,16 @@ def calc_cost_dist(tour, coords, prize, end_id, success):
     return -cost, distance
 
 
-def get_runs(method):
+def parse_runs(method: str) -> Tuple[int, str]:
+    """
+    Parse the method name to get the number of runs and the method itself.
+
+    Args:
+        method (str): Method name.
+
+    Returns:
+        tuple: Number of runs and method.
+    """
     match = re.match(r'^([a-z]+)(\d*)$', method)
     assert match
     method = match[1]
@@ -43,7 +69,26 @@ def get_runs(method):
     return runs, method
 
 
-def multiprocessing(opts, func, directory, dataset, use_multiprocessing=True, **kwargs):
+def multiprocessing(
+        opts: argparse.Namespace,
+        func: Any,
+        directory: str,
+        dataset: Any,
+        use_multiprocessing: bool = True,
+        **kwargs) -> Tuple[list, int]:
+    """
+    Perform multiprocessing for function execution.
+
+    Args:
+        opts (argparse.Namespace): Parsed command-line arguments.
+        func (Any): Function to execute.
+        directory (str): Directory path.
+        dataset (Any): Dataset.
+        use_multiprocessing (bool): Whether to use multiprocessing.
+
+    Returns:
+        tuple: Results and number of CPUs employed.
+    """
     directory = os.path.join(Path(__file__).parent.parent.parent, directory)
 
     # Kwargs to args
@@ -73,7 +118,19 @@ def multiprocessing(opts, func, directory, dataset, use_multiprocessing=True, **
     return results, num_cpus
 
 
-def path_planning(obs, method='a_star', scale=100, margin=5):
+def path_planning(obs: np.ndarray, method: str = 'a_star', scale: int = 100, margin: int = 5) -> Tuple[Any, list, list]:
+    """
+    Perform (low-level) path planning.
+
+    Args:
+        obs (np.ndarray): List of obstacles.
+        method (str): Method name for path planning.
+        scale (int): Scale factor.
+        margin (int): Margin value.
+
+    Returns:
+        tuple: Planner, x-coordinates of obstacles, y-coordinates of obstacles.
+    """
 
     # Define obstacles for path planning
     def obstacle_list(obs_, margin_=5):
@@ -125,8 +182,88 @@ def path_planning(obs, method='a_star', scale=100, margin=5):
     return planner, ox, oy
 
 
-def solve_nop(directory, name, scenario, route_planner='ortools', path_planner='a_star', disable_cache=False,
-              sec_local_search=0):
+def route_planning(
+        depot_ini: list,
+        loc: list,
+        prize: list,
+        max_length: float,
+        depot_end: list,
+        id_map: list,
+        end_id: int,
+        method: str = 'ortools',
+        sec_local_search: int = 0,
+        eps: float = 0.) -> Tuple[list, int, int]:
+    """
+    Perform (high-level) route planning.
+
+    Args:
+        depot_ini (list): Initial depot coordinates.
+        loc (list): Location coordinates.
+        prize (list): Prize values.
+        max_length (float): Maximum length.
+        depot_end (list): End depot coordinates.
+        id_map (list): ID map.
+        end_id (int): index of the end depot.
+        method (str): Method name.
+        sec_local_search (int): local search seconds.
+        eps (float): Epsilon value to avoid surpassing `max_length`.
+
+    Returns:
+        tuple: Goal coordinates, goal index, and on depot status.
+    """
+
+    # Genetic Algorithm
+    if method == 'genetic':
+        tour = solve_op_genetic(  # Index 0 = start depot | Index 1 = end depot
+            [(*pos, p) for p, pos in zip([0, 0] + prize, [depot_ini, depot_end] + loc)],
+            max_length - eps, return_sol=True, verbose=False
+        )[1] if len(loc) > 1 else [(*depot_ini, 0, 0, 0), (*depot_end, 0, 1, 0)]
+        next_node = tour[1][3]
+        goal_id = (end_id if next_node == 1 else next_node) if next_node <= 1 else id_map[next_node - 2] + 1
+        goal_coords = tour[1][:2]
+        on_depot = next_node == 1
+        delete_id = next_node - 2
+
+    # OR-Tools
+    else:
+        assert method == 'ortools', 'Route planner not in list: [ga, ortools]'
+        _, tour = solve_op_ortools(
+            depot_ini, loc, prize, max_length - eps, sec_local_search=sec_local_search, depot2=depot_end
+        )
+        next_node = tour[1]
+        goal_id = end_id if next_node == len(loc) + 1 else (0 if next_node == 0 else id_map[next_node - 1] + 1)
+        goal_coords = ([depot_ini] + loc + [depot_end])[next_node]
+        on_depot = goal_id == end_id
+        delete_id = next_node - 1
+    if delete_id != len(loc):
+        loc.pop(delete_id)
+        prize.pop(delete_id)
+        id_map.pop(delete_id)
+    return goal_coords, goal_id, on_depot
+
+
+def solve_nop(directory: str,
+              name: str,
+              scenario: list,
+              route_planner: str = 'ortools',
+              path_planner: str = 'a_star',
+              disable_cache: bool = False,
+              sec_local_search: int = 0) -> Tuple[float, list, float, bool]:
+    """
+    Solve the Navigation Orienteering Problem (NOP).
+
+    Args:
+        directory (str): Directory path.
+        name (str): Name.
+        scenario (list): Scenario information.
+        route_planner (str): Route planner.
+        path_planner (str): Path planner.
+        disable_cache (bool): Whether to disable caching.
+        sec_local_search (int): Secondary local search.
+
+    Returns:
+        tuple: Cost, tour (list of coordinates), duration, and success.
+    """
     depot_end, depot_ini, loc, max_length, obs, prize = scenario
 
     # Filename
@@ -201,36 +338,3 @@ def solve_nop(directory, name, scenario, route_planner='ortools', path_planner='
         if directory is not None:
             save_dataset((cost, nav, duration, success), problem_filename)
     return cost, nav, duration, success
-
-
-def route_planning(depot_ini, loc, prize, max_length, depot_end, id_map, end_id, method='ortools', sec_local_search=0,
-                   eps=0.):
-
-    # Genetic Algorithm
-    if method == 'genetic':
-        tour = solve_op_genetic(  # Index 0 = start depot | Index 1 = end depot
-            [(*pos, p) for p, pos in zip([0, 0] + prize, [depot_ini, depot_end] + loc)],
-            max_length - eps, return_sol=True, verbose=False
-        )[1] if len(loc) > 1 else [(*depot_ini, 0, 0, 0), (*depot_end, 0, 1, 0)]
-        next_node = tour[1][3]
-        goal_id = (end_id if next_node == 1 else next_node) if next_node <= 1 else id_map[next_node - 2] + 1
-        goal_coords = tour[1][:2]
-        on_depot = next_node == 1
-        delete_id = next_node - 2
-
-    # OR-Tools
-    else:
-        assert method == 'ortools', 'Route planner not in list: [ga, ortools]'
-        _, tour = solve_op_ortools(
-            depot_ini, loc, prize, max_length - eps, sec_local_search=sec_local_search, depot2=depot_end
-        )
-        next_node = tour[1]
-        goal_id = end_id if next_node == len(loc) + 1 else (0 if next_node == 0 else id_map[next_node - 1] + 1)
-        goal_coords = ([depot_ini] + loc + [depot_end])[next_node]
-        on_depot = goal_id == end_id
-        delete_id = next_node - 1
-    if delete_id != len(loc):
-        loc.pop(delete_id)
-        prize.pop(delete_id)
-        id_map.pop(delete_id)
-    return goal_coords, goal_id, on_depot
