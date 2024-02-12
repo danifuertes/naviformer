@@ -1,15 +1,36 @@
 import random
 import numpy as np
+from typing import Tuple
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from scipy.interpolate import splprep, splev
 
 
-def path_smoothing(path):
+def path_smoothing(path: np.ndarray) -> np.ndarray:
+    """
+    Smooth the given path.
+
+    Args:
+        path (numpy.ndarray): The path to be smoothed.
+
+    Returns:
+        numpy.ndarray: The smoothed path.
+    """
     tck, *rest = splprep(path, s=0.005)
     return np.array(splev(np.linspace(0, 1, num=path.shape[1]), tck))
 
 
-def assign_colors(n):
+def assign_colors(n: int) -> list:
+    """
+    Assign colors to elements.
+
+    Args:
+        n (int): The number of elements to assign colors to.
+
+    Returns:
+        list: A list of colors assigned to the elements.
+    """
     color = {k: [] for k in 'rgb'}
     for i in range(n):
         temp = {k: random.randint(0, 230) for k in 'rgb'}
@@ -25,7 +46,31 @@ def assign_colors(n):
     return [(color['r'][i] / 256, color['g'][i] / 256, color['b'][i] / 256) for i in range(n)]
 
 
-def get_title(model_name, problem, data_dist, distance=0., reward=0., total_prize=0., max_length=0., is_path=False):
+def get_title(
+        model_name: str,
+        problem: str,
+        data_dist: str,
+        distance: float = 0.,
+        reward: float = 0.,
+        total_prize: float = 0.,
+        max_length: float = 0.,
+        is_path: bool = False) -> str:
+    """
+    Generate the plot title.
+
+    Args:
+        model_name (str): The name of the model.
+        problem (str): The problem type.
+        data_dist (str): The data distribution.
+        distance (float): The distance.
+        reward (float): The reward.
+        total_prize (float): The total prize.
+        max_length (float): The maximum travel length allowed.
+        is_path (bool): Whether the title is for a path or a route.
+
+    Returns:
+        str: The generated title.
+    """
     prize_str = 'Nodes' if is_path else 'Prize'
     title = problem.upper()
     title += ' (' + data_dist.lower() + ')' if len(data_dist) > 0 else ''
@@ -46,7 +91,24 @@ def get_title(model_name, problem, data_dist, distance=0., reward=0., total_priz
     return title
 
 
-def plot(tours, batch, problem, model_name, data_dist='', success=True):
+def plot(
+        tours: list,
+        batch: dict,
+        problem: str,
+        model_name: str,
+        data_dist: str = '',
+        success: bool = True) -> None:
+    """
+    Plot a general tour and then individual tours for each agent.
+
+    Args:
+        tours (list): The list of tours (one per agent).
+        batch (dict): The batch data.
+        problem (str): The problem type.
+        model_name (str): The name of the model.
+        data_dist (str): The data distribution.
+        success (bool): Whether the tours were successful.
+    """
 
     # General plot
     if len(tours) > 1:
@@ -86,8 +148,43 @@ def plot(tours, batch, problem, model_name, data_dist='', success=True):
         )
 
 
-def plot_path(tour, batch, problem, model_name, data_dist='', nodes=0., iteration=0, save_image='', show=True,
-              fig=None, ax=None, scenario=True, colors=None, title=''):
+def plot_path(
+        tour: np.ndarray,
+        batch: dict,
+        problem: str,
+        model_name: str,
+        data_dist: str = '',
+        nodes: float = 0.,
+        iteration: int = 0,
+        save_image: str = '',
+        show: bool = True,
+        fig: Figure | None = None,
+        ax: Axes | None = None,
+        scenario: bool = True,
+        colors: list | None = None,
+        title: str = '') -> Tuple[Figure, Axes] | None:
+    """
+        Plot a single path.
+
+        Args:
+            tour (numpy.ndarray): The tour data.
+            batch (dict): The batch data.
+            problem (str): The problem type.
+            model_name (str): The name of the model.
+            data_dist (str): The data distribution.
+            nodes (float): The number of nodes.
+            iteration (int): The iteration number.
+            save_image (str): Path to save the image.
+            show (bool): Whether to show the plot.
+            fig (matplotlib.figure.Figure, optional): The figure object.
+            ax (matplotlib.axes.Axes, optional): The axes object.
+            scenario (bool): Whether it's a scenario plot.
+            colors (list, optional): List of colors for plotting.
+            title (str): The title of the plot.
+
+        Returns:
+            matplotlib.figure.Figure, matplotlib.axes.Axes or None: The figure and axes if `show` is False, else None.
+    """
     time_step = 2e-2
 
     # Initialize plot

@@ -1,5 +1,7 @@
 import copy
 import torch
+import argparse
+from typing import Any, Tuple
 from scipy.stats import ttest_rel
 
 from .basic import BasicBaseline
@@ -8,13 +10,30 @@ from utils import rollout, get_inner_model
 
 class RolloutBaseline(BasicBaseline):
 
-    def __init__(self, model, problem, opts, epoch=0):
+    def __init__(self, model: torch.nn.Module, problem: Any, opts: argparse.Namespace, epoch: int = 0) -> None:
+        """
+        Initialize the RolloutBaseline.
+
+        Args:
+            model (torch.nn.Module): Model.
+            problem (Any): Problem instance.
+            opts: Options.
+            epoch (int): Epoch number (default is 0).
+        """
         super(BasicBaseline, self).__init__()
         self.opts = opts
         self.problem = problem
         self._update_model(model, epoch)
 
-    def _update_model(self, model, epoch, env=None):
+    def _update_model(self, model: torch.nn.Module, epoch: int, env: Any = None) -> None:
+        """
+        Update the baseline model.
+
+        Args:
+            model (torch.nn.Module): Model.
+            epoch (int): Epoch number.
+            env (Any): Environment.
+        """
 
         # Get current epoch
         self.epoch = epoch
@@ -41,20 +60,33 @@ class RolloutBaseline(BasicBaseline):
         self.reward_bl = rollout(self.model, self.env, desc='Baseline').cpu().numpy()
         self.mean = self.reward_bl.mean()
 
-    def eval(self, x, c, s):
+    def eval(self, x: dict, c: torch.Tensor, e: Any) -> Tuple[torch.Tensor | float, torch.Tensor | float]:
+        """
+        Evaluate the baseline.
+
+        Args:
+            x (dict): Input batch.
+            c (torch.Tensor): Cost (negative reward) found by the model.
+            e (Any): Environment.
+
+        Returns:
+            tuple: Tuple containing the baseline value and the loss.
+        """
 
         # Use volatile mode for efficient inference (single batch so we do not use rollout function)
         with torch.no_grad():
-            v, _ = self.model(x, s)
+            v, _ = self.model(x, e)
 
         # There is no loss
         return v, 0
 
-    def epoch_callback(self, model, epoch):
+    def epoch_callback(self, model: torch.nn.Module, epoch: int) -> None:
         """
-        Challenges the current baseline with the model and replaces the baseline model if it is improved.
-        :param model: The model to challenge the baseline by
-        :param epoch: The current epoch
+        Epoch callback. Challenges the current baseline with the model and replaces the baseline model if improved.
+
+        Args:
+            model (torch.Tensor): Model.
+            epoch (int): Epoch number.
         """
 
         # Evaluate candidate model on evaluation dataset
@@ -75,10 +107,22 @@ class RolloutBaseline(BasicBaseline):
                 print("Update baseline")
                 self._update_model(model, epoch)
 
-    def state_dict(self):
+    def state_dict(self) -> dict:
+        """
+        Get the state dictionary.
+
+        Returns:
+            dict: State dictionary.
+        """
         return {'model': self.model, 'env': self.env, 'epoch': self.epoch}
 
-    def load_state_dict(self, state_dict):
+    def load_state_dict(self, state_dict: dict) -> None:
+        """
+        Load the state dictionary of the baseline.
+
+        Args:
+            state_dict: State dictionary to load.
+        """
         # We make it such that it works whether model was saved as data parallel or not
         load_model = copy.deepcopy(self.model)
         get_inner_model(load_model).load_state_dict(get_inner_model(state_dict['model']).state_dict())

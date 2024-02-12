@@ -19,7 +19,13 @@ def data2list(data):
     return datalist
 
 
-def get_options():
+def get_options() -> argparse.Namespace:
+    """
+    Parse command line arguments to configure dataset generation options.
+
+    Returns:
+        argparse.Namespace: Parsed arguments as a namespace object.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=1234, help="Random seed")
 
@@ -56,7 +62,16 @@ def get_options():
     return opts
 
 
-def main(opts):
+def main(opts: argparse.Namespace) -> None:
+    """
+    Main function to generate and save datasets based on specified options.
+
+    Args:
+        opts (argparse.Namespace): Parsed command line arguments.
+
+    Returns:
+        None
+    """
 
     # For each data distribution
     for dist in opts.data_dist:

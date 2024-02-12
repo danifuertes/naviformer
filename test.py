@@ -4,7 +4,13 @@ from utils import *
 from envs import load_problem, print_results
 
 
-def get_options():
+def get_options() -> argparse.Namespace:
+    """
+    Parse command line arguments to configure testing options for evaluating the neural network model.
+
+    Returns:
+        argparse.Namespace: Parsed arguments as a namespace object.
+    """
     parser = argparse.ArgumentParser()
 
     # Data
@@ -35,6 +41,15 @@ def get_options():
 
 
 def main(opts):
+    """
+    Main function to evaluate the neural network model on given datasets.
+
+    Args:
+        opts (argparse.Namespace): Parsed command line arguments.
+
+    Returns:
+        None
+    """
 
     # Device
     device = torch.device("cuda" if opts.use_cuda else "cpu")

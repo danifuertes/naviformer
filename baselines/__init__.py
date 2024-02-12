@@ -1,3 +1,7 @@
+import torch
+import argparse
+from typing import Any
+
 from .basic import NoBaseline
 from .warmup import WarmupBaseline
 from .critic import CriticBaseline
@@ -6,7 +10,19 @@ from .exponential import ExponentialBaseline
 from nets.modules.critic import Critic
 
 
-def load_baseline(opts, model, problem, load_data):
+def load_baseline(opts: argparse.Namespace, model: torch.nn.Module, problem: Any, load_data: dict):
+    """
+    Load the specified baseline.
+
+    Args:
+        opts (argparse.Namespace): Options for loading the baseline.
+        model (torch.nn.Module): The model.
+        problem (str): The problem.
+        load_data (dict): Data to load.
+
+    Returns:
+        Baseline: The loaded baseline.
+    """
 
     # Exponential baseline
     if opts.baseline == 'exponential':

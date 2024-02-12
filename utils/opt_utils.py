@@ -5,7 +5,13 @@ import argparse
 import numpy as np
 
 
-def global_vars():
+def global_vars() -> dict:
+    """
+    Return a dictionary containing global variables used in the utilities.
+
+    Returns:
+        dict: A dictionary containing global variables.
+    """
     return {
         'PROBLEMS': ['nop', 'op'],
         'DATA_DIST': ['const', 'unif', 'dist'],
@@ -28,11 +34,15 @@ ROUTE_PLANNERS = global_vars()['ROUTE_PLANNERS']
 PATH_PLANNERS = global_vars()['PATH_PLANNERS']
 
 
-def str2bool(v):
+def str2bool(v: str) -> bool:
     """
     Transform string inputs into boolean.
-    :param v: string input.
-    :return: string input transformed to boolean.
+
+    Args:
+        v (str): The string input.
+
+    Returns:
+        bool: The string input transformed to boolean.
     """
     if isinstance(v, bool):
         return v
@@ -44,10 +54,16 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def set_seed(seed):
+def set_seed(seed: int) -> None:
+    """
+    Set the seed for various random number generators for reproducibility.
+
+    Args:
+        seed (int): The seed value.
+    """
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+    torch.cuda.manual_seed_all(seed)  # If you are using multi-GPU.
     np.random.seed(seed)  # Numpy module.
     random.seed(seed)  # Python random module.
     torch.manual_seed(seed)
@@ -55,7 +71,13 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
 
 
-def check_make_data_options(opts):
+def check_make_data_options(opts: argparse.Namespace) -> None:
+    """
+    Check if the options for creating data are valid.
+
+    Args:
+        opts (argparse.Namespace): The parsed command-line arguments.
+    """
     assert opts.seed >= 0,                          f"seed must be non-negative, found {opts.seed}"
     assert opts.problem in PROBLEMS,                f"'{opts.problem}' not in problem list: {PROBLEMS}"
     assert np.all(np.array(opts.num_nodes) > 0),    f"num_nodes must be positive, found: {opts.num_nodes}"
@@ -70,7 +92,13 @@ def check_make_data_options(opts):
         assert dist in DATA_DIST,                   f"'{dist}' not in data_dist list: {DATA_DIST}"
 
 
-def check_visualize_options(opts):
+def check_visualize_options(opts: argparse.Namespace) -> None:
+    """
+    Check if the options for visualization are valid.
+
+    Args:
+        opts (argparse.Namespace): The parsed command-line arguments.
+    """
     assert opts.seed >= 0,              f"seed must be non-negative, found {opts.seed}"
     assert opts.problem in PROBLEMS,    f"'{opts.problem}' not in problem list: {PROBLEMS}"
     assert opts.num_agents > 0,         f"num_agents must be positive, found: {opts.num_agents}"
@@ -82,7 +110,13 @@ def check_visualize_options(opts):
     assert opts.max_obs >= 0,           f"max_obs must be non-negative, found: {opts.max_obs}"
 
 
-def check_nop_benchmark_options(opts):
+def check_nop_benchmark_options(opts: argparse.Namespace) -> None:
+    """
+    Check if the options for NOP benchmarking are valid.
+
+    Args:
+        opts (argparse.Namespace): The parsed command-line arguments.
+    """
     assert opts.route_planner in ROUTE_PLANNERS, f"'{opts.route_planner}' not in route planners list: {ROUTE_PLANNERS}"
     assert opts.path_planner in PATH_PLANNERS,   f"'{opts.path_planner}' not in route planners list: {PATH_PLANNERS}"
     assert opts.offset > 0,                      f"offset must be positive, found: {opts.offset}"
@@ -92,14 +126,26 @@ def check_nop_benchmark_options(opts):
     assert opts.problem, f"'{opts.problem}' not in problem list: {PROBLEMS}"
 
 
-def check_test_options(opts):
+def check_test_options(opts: argparse.Namespace) -> None:
+    """
+    Check if the options for testing are valid.
+
+    Args:
+        opts (argparse.Namespace): The parsed command-line arguments.
+    """
     assert opts.batch_size > 0,                      f"batch_size must be positive, found: {opts.batch_size}"
     assert opts.num_workers >= 0,                    f"num_workers must be non negative, found: {opts.num_workers}"
     assert opts.decode_strategy in DECODE_STRATEGY,  f"'{opts.decode_strategy}' not in strategy list: {DECODE_STRATEGY}"
     assert opts.o is None or len(opts.datasets) == 1, "Cannot specify result filename with more than one dataset"
 
 
-def check_train_options(opts):
+def check_train_options(opts: argparse.Namespace) -> None:
+    """
+    Check if the options for training are valid.
+
+    Args:
+        opts (argparse.Namespace): The parsed command-line arguments.
+    """
     assert opts.seed >= 0,              f"seed must be non-negative, found {opts.seed}"
     assert opts.problem,                f"'{opts.problem}' not in problem list: {PROBLEMS}"
     assert opts.num_agents > 0,         f"num_agents must be positive, found: {opts.num_agents}"

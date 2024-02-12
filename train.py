@@ -1,3 +1,4 @@
+import argparse
 import time
 
 from utils import *
@@ -12,7 +13,16 @@ NORM = global_vars()['NORM']
 BASELINES = global_vars()['BASELINES']
 
 
-def get_options(args=None):
+def get_options(args: list = None) -> argparse.Namespace:
+    """
+    Parse command line arguments to configure training options for the neural network model.
+
+    Args:
+        args (list): List of command line arguments. If None, defaults to sys.argv.
+
+    Returns:
+        argparse.Namespace: Parsed arguments as a namespace object.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=1234, help="Random seed to use")
 
@@ -123,7 +133,16 @@ def get_options(args=None):
     return opts
 
 
-def main(opts):
+def main(opts: argparse.Namespace) -> None:
+    """
+    Main function to train a neural network model for navigation problems.
+
+    Args:
+        opts (argparse.Namespace): Parsed command line arguments.
+
+    Returns:
+        None
+    """
 
     # Tensorboard logger
     tb_logger = config_logger(opts)

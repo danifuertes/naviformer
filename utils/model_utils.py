@@ -1,19 +1,49 @@
 import os
 import json
 import torch
+import argparse
+from typing import Any, Tuple
+
 from nets import *
 
 
-def get_inner_model(model):
+def get_inner_model(model: torch.nn.Module | torch.nn.DataParallel) -> torch.nn.Module:
+    """
+    Get the inner model from a DataParallel wrapper.
+
+    Args:
+        model (torch.nn.Module or torch.nn.DataParallel): The model to extract the inner model from.
+
+    Returns:
+        torch.nn.Module: The inner model.
+    """
     return model.module if isinstance(model, torch.nn.DataParallel) else model
 
 
-def load_cpu(load_path):
+def load_cpu(load_path: str) -> Any:
+    """
+    Loads data from a file while ensuring it is loaded onto the CPU.
+
+    Args:
+        load_path (str): The path to the file containing the data.
+
+    Returns:
+        Any: The loaded data.
+    """
     return torch.load(load_path, map_location=lambda storage, loc: storage)
 
 
-def load_file(load_path, model):
-    """Loads the model with parameters from the file and returns optimizer state dict if it is in the file"""
+def load_file(load_path: str, model: torch.nn.Module) -> Tuple[torch.nn.Module, dict]:
+    """
+    Loads the model parameters from a file and returns the model and the optimizer state dict (if it is in the file).
+
+    Args:
+        load_path (str): The path to the file containing the saved model.
+        model (torch.nn.Module): The model to load parameters into.
+
+    Returns:
+        tuple: A tuple containing the loaded model and the optimizer state dict (or None if not found).
+    """
     print('  [*] Loading model from {}'.format(load_path))
 
     # Load the model parameters from a saved state
@@ -24,11 +54,11 @@ def load_file(load_path, model):
         ), map_location=lambda storage, loc: storage)
 
     # Get state_dict
-    load_optimizer_state_dict = None
     if isinstance(load_data, dict):
         load_optimizer_state_dict = load_data.get('optimizer', None)
         load_model_state_dict = load_data.get('model', load_data)
     else:
+        load_optimizer_state_dict = None
         load_model_state_dict = load_data.state_dict()
 
     # Update model state_dict
@@ -38,7 +68,18 @@ def load_file(load_path, model):
     return model, load_optimizer_state_dict
 
 
-def load_file_or_dir(path, epoch=None):
+def load_file_or_dir(path: str, epoch: int | None = None) -> Tuple[str, str, int]:
+    """
+    Determines whether the provided path is a file or directory and returns the appropriate model filename. If it is a
+    directory, it returns the latest saved model filename when there are more than one in the directory.
+
+    Args:
+        path (str): The path to the file or directory containing the saved model(s).
+        epoch (int, optional): The epoch to load from if `path` is a directory. Defaults to None.
+
+    Returns:
+        tuple: A tuple containing the model filename, its directory, and the next epoch.
+    """
 
     # Path indicates the saved epoch
     if os.path.isfile(path):
@@ -59,7 +100,25 @@ def load_file_or_dir(path, epoch=None):
     return model_filename, path, epoch + 1
 
 
-def save_model(model, optimizer, baseline, save_dir, epoch):
+def save_model(
+        model: torch.nn.Module | torch.nn.DataParallel,
+        optimizer: torch.optim.Optimizer,
+        baseline: Any,
+        save_dir: str,
+        epoch: int) -> None:
+    """
+    Saves the model, optimizer state, and other information to a file.
+
+    Args:
+        model (torch.nn.Module): The model to save.
+        optimizer (torch.optim.Optimizer): The optimizer.
+        baseline: The baseline.
+        save_dir (str): The directory to save the model to.
+        epoch (int): The current epoch.
+
+    Returns:
+        None
+    """
     torch.save(
         {
             'model': get_inner_model(model).state_dict(),
@@ -72,7 +131,19 @@ def save_model(model, optimizer, baseline, save_dir, epoch):
     )
 
 
-def load_model_train(opts, ensure_instance='', two_step=''):
+def load_model_train(opts: argparse.Namespace, ensure_instance: str = '', two_step: str = '') -> \
+        Tuple[torch.nn.Module, dict, int]:
+    """
+    Loads a model for training based on specified options.
+
+    Args:
+        opts (argparse.Namespace): Parsed command line arguments.
+        ensure_instance (str, optional): The expected class of the loaded model. Defaults to ''.
+        two_step (str, optional): Path to a pretrained 2-step route planner. Defaults to ''.
+
+    Returns:
+        tuple: A tuple containing the loaded model, loaded data, and the first epoch.
+    """
 
     # Choose model
     model_class = {
@@ -125,7 +196,26 @@ def load_model_train(opts, ensure_instance='', two_step=''):
     return model, load_data, first_epoch
 
 
-def load_model_eval(path, epoch=None, kwargs=None, ensure_instance='', decode='greedy', temp=None):
+def load_model_eval(path: str,
+                    epoch: int = None,
+                    ensure_instance: str = '',
+                    decode: str = 'greedy',
+                    temp: float | None = None,
+                    kwargs=None) -> Tuple[torch.nn.Module, dict]:
+    """
+    Loads a model for evaluation based on specified options.
+
+    Args:
+        path (str): Path to the model file or directory.
+        epoch (int, optional): The epoch to load if `path` is a directory. Defaults to None.
+        ensure_instance (str, optional): The expected class of the loaded model. Defaults to ''.
+        decode (str, optional): The decoding strategy. Defaults to 'greedy'.
+        temp (float, optional): Softmax temperature for sampling. Defaults to None.
+        kwargs (dict, optional): Additional keyword arguments for model initialization. Defaults to None.
+
+    Returns:
+        tuple: A tuple containing the loaded model and its arguments.
+    """
 
     # Get model filename
     model_filename, path, _ = load_file_or_dir(path=path, epoch=epoch)
@@ -174,15 +264,24 @@ def load_model_eval(path, epoch=None, kwargs=None, ensure_instance='', decode='g
     return model, args
 
 
-def load_args(filename):
+def load_args(filename: str) -> dict:
+    """
+    Loads arguments from a JSON file.
+
+    Args:
+        filename (str): The path to the JSON file containing arguments.
+
+    Returns:
+        dict: The loaded arguments.
+    """
     with open(filename, 'r') as f:
         args = json.load(f)
 
     # Backwards compatibility
     if 'data_dist' not in args:
         args['data_dist'] = None
-        probl, *dist = args['problem'].split("_")
-        if probl == "op":
-            args['problem'] = probl
+        problem, *dist = args['problem'].split("_")
+        if problem == "op":
+            args['problem'] = problem
             args['data_dist'] = dist[0]
     return args

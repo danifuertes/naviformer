@@ -1,9 +1,21 @@
+import argparse
 import os
 import json
+
+import torch
 from tensorboard_logger import Logger as TbLogger
 
 
-def config_logger(opts):
+def config_logger(opts: argparse.Namespace) -> TbLogger | None:
+    """
+    Prints and saves arguments into a json file. Optionally sets up TensorBoard logging.
+
+    Args:
+        opts (argparse.Namespace): Parsed command line arguments.
+
+    Returns:
+        TbLogger or None: TensorBoard logger instance if enabled, otherwise None.
+    """
     tb_logger = None
     if not opts.eval_only:
 
@@ -24,11 +36,38 @@ def config_logger(opts):
     for k, v in vars(opts).items():
         print("'{}': {}".format(k, v))
     print()
-
     return tb_logger
 
 
-def log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood, reinforce_loss, loss_bl, tb_logger, opts):
+def log_values(
+        cost: torch.Tensor,
+        grad_norms: tuple,
+        epoch: int,
+        batch_id: int,
+        step: int,
+        log_likelihood: torch.Tensor,
+        reinforce_loss: torch.Tensor,
+        loss_bl: torch.Tensor,
+        tb_logger: TbLogger | None,
+        opts: argparse.Namespace) -> None:
+    """
+    Log values during training to the console and optionally to TensorBoard.
+
+    Args:
+        cost (Tensor): Cost values.
+        grad_norms (tuple): Tuple containing gradient norms before and after clipping.
+        epoch (int): Current epoch number.
+        batch_id (int): Batch ID.
+        step (int): Current step number.
+        log_likelihood (Tensor): Log likelihood values.
+        reinforce_loss (Tensor): Reinforce loss values.
+        loss_bl (Tensor): Baseline loss values.
+        tb_logger (TbLogger or None): TensorBoard logger instance.
+        opts (argparse.Namespace): Parsed command line arguments.
+
+    Returns:
+        None
+    """
 
     # Get average cost
     avg_cost = cost.mean().item()
