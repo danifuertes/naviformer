@@ -1,6 +1,7 @@
 import time
 
 from utils import *
+from nets import load_model_eval
 from envs import load_problem, print_results
 
 

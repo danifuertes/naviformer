@@ -163,7 +163,7 @@ def rollout(model: torch.nn.Module, env: Any, desc: str = '') -> torch.Tensor:
     return torch.cat(rewards, dim=0)
 
 
-def validate(model: torch.nn.Module, env: Any) -> torch.Tensor:
+def validate(model: torch.nn.Module, env: Any) -> float:
     """
     Validate the model through rollouts.
 

@@ -1,23 +1,40 @@
+import os
 import math
-import os.path
+import torch
 from torch import nn
+from typing import Any, Tuple
 
 from .modules import *
 
 
 class NaviFormer(nn.Module):
+    """NaviFormer neural network"""
 
     def __init__(self,
-                 embed_dim=128,
-                 combined_mha=True,
-                 two_step='',
-                 max_obs=0,
-                 num_heads=8,
-                 num_blocks=2,
-                 tanh_clipping=10.,
-                 normalization='batch',
-                 checkpoint_enc=False,
-                 **kwargs):
+                 embed_dim: int = 128,
+                 combined_mha: bool = True,
+                 two_step: str = '',
+                 max_obs: int = 0,
+                 num_heads: int = 8,
+                 num_blocks: int = 2,
+                 tanh_clipping: float = 10.,
+                 normalization: str = 'batch',
+                 checkpoint_enc: bool = False,
+                 **kwargs) -> None:
+        """
+        Initialize NaviFormer model.
+
+        Args:
+            embed_dim (int): Dimension of embeddings.
+            combined_mha (bool): Whether to use combined/standard MHA encoder.
+            two_step (str): Pre-trained route planner for 2-step navigation planner.
+            max_obs (int): Maximum number of obstacles.
+            num_heads (int): Number of heads for MHA layers.
+            num_blocks (int): Number of encoding blocks.
+            tanh_clipping (float): Clip tanh values.
+            normalization (str): Type of normalization.
+            checkpoint_enc (bool): Whether to checkpoint to decrease memory usage.
+        """
         super(NaviFormer, self).__init__()
         assert embed_dim % num_heads == 0, f"Embedding dimension should be dividable by number of heads, " \
                                            f"found embed_dim={embed_dim} and num_heads={num_heads}"
@@ -113,13 +130,29 @@ class NaviFormer(nn.Module):
         # Initialize fixed data (computed only during the first iteration)
         self.fixed_data = None
 
-    def set_decode_type(self, decode_type, temp=None):
-        """Either greedy (exploitation) or sampling (exploration)."""
+    def set_decode_type(self, decode_type: str, temp: float | None = None) -> None:
+        """
+        Set decode type: either greedy (exploitation) or sampling (exploration).
+
+        Args:
+            decode_type (str): Type of decoding.
+            temp (float): SoftMax temperature parameter (optional).
+        """
         self.decode_type = decode_type
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, batch, env):
+    def forward(self, batch: dict | torch.Tensor, env: Any):
+        """
+        Forward pass of the model.
+
+        Args:
+            batch (dict or torch.Tensor): Batch data.
+            env (Any): Environment data.
+
+        Returns:
+            tuple: Total reward, total log probability, actions, and success.
+        """
 
         # Initialize state and other info
         state = env.get_state(batch)
@@ -134,7 +167,7 @@ class NaviFormer(nn.Module):
         while not done:
 
             # Predict actions and (log) probabilities for current state
-            action, log_prob = self.episode(state)
+            action, log_prob = self.step(state)
 
             # Get reward and update state based on the action predicted
             state = state.step(action)
@@ -151,7 +184,16 @@ class NaviFormer(nn.Module):
         # Return reward and log probabilities
         return total_reward, total_log_prob, torch.stack(actions, dim=1), success
 
-    def episode(self, state):
+    def step(self, state: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Execute an step.
+
+        Args:
+            state (Any): State information.
+
+        Returns:
+            tuple: Actions and log probabilities.
+        """
 
         # Transformer decoder
         log_probs_node, selected_node, log_probs_direction, selected_direction = self.decoder(state)
@@ -167,7 +209,16 @@ class NaviFormer(nn.Module):
         # Return actions and log probabilities
         return actions, log_prob
 
-    def encoder(self, state):
+    def encoder(self, state: Any) -> torch.Tensor:
+        """
+        Encoder for the model.
+
+        Args:
+            state (Any): State information.
+
+        Returns:
+            torch.Tensor: Embeddings.
+        """
 
         # Pre-trained (2-step) Transformer decoder
         if self.two_step:
@@ -181,8 +232,17 @@ class NaviFormer(nn.Module):
         embeddings = (h[0], h[2]) if self.combined_mha else h[0]
         return embeddings
 
-    def precompute(self, embeddings, obs=None):
-        """Precompute Encoder embeddings."""
+    def precompute(self, embeddings: torch.Tensor, obs: torch.Tensor | None = None) -> AttentionModelFixed:
+        """
+        Precompute Encoder embeddings.
+
+        Args:
+            embeddings (torch.Tensor): Embeddings.
+            obs (torch.Tensor or None): Obstacles information.
+
+        Returns:
+            Precomputed AttentionModelFixed data.
+        """
 
         # Pre-trained (2-step) Transformer encoder precompute
         if self.two_step:
@@ -218,7 +278,16 @@ class NaviFormer(nn.Module):
         )
         return AttentionModelFixed(graph_embedding, graph_embedding_mean, *key_val_data, *obs_data)
 
-    def decoder(self, state):
+    def decoder(self, state: Any) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Decoder for the model.
+
+        Args:
+            state (Any): State information.
+
+        Returns:
+            tuple: Log probabilities and selected indices.
+        """
 
         # Pre-trained (2-step) Transformer decoder
         if self.two_step:
@@ -240,8 +309,17 @@ class NaviFormer(nn.Module):
         # Return actions and log probabilities
         return log_probs_node, selected_node, log_probs_direction, selected_direction
 
-    def predict_node(self, state, normalize=True):
-        """Predict log probabilities."""
+    def predict_node(self, state: Any, normalize: bool = True):
+        """
+        Predict log probabilities for each node.
+
+        Args:
+            state (Any): State information.
+            normalize (bool): Whether to normalize.
+
+        Returns:
+            torch.Tensor: Log probabilities.
+        """
 
         # Compute state embedding
         state_embedding = self.project_state(self.get_state_embedding(self.fixed_data.graph_embedding, state))
@@ -270,8 +348,17 @@ class NaviFormer(nn.Module):
         return log_probs
 
     @staticmethod
-    def get_state_embedding(embeddings, state):
-        """Returns the context per step, optionally for multiple steps at once (for efficient eval of the model)."""
+    def get_state_embedding(embeddings: torch.Tensor, state: Any) -> torch.Tensor:
+        """
+        Get state embedding.
+
+        Args:
+            embeddings (torch.Tensor): Embeddings.
+            state (Any): State information.
+
+        Returns:
+            torch.Tensor: State embedding.
+        """
 
         # Get current node index and expand it to (B x 1 x H) to allow gathering from embedding (B x N x H)
         current_node = state.prev_node.contiguous()[:, None, None].expand(-1, 1, embeddings.size(-1))
@@ -282,8 +369,20 @@ class NaviFormer(nn.Module):
         # Return context: (embedding of last node, remaining time/length, current position, distance to obstacles)
         return torch.cat((last_node_embed, state.length[..., None], state.position, state.get_dist2obs()), dim=-1)
 
-    def mha_decoder(self, query, key, value, mask):
-        """Multi-Head Attention (MHA) mechanism"""
+    def mha_decoder(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, mask: torch.Tensor) -> \
+            torch.Tensor:
+        """
+        Multi-Head Attention (MHA) mechanism.
+
+        Args:
+            query (torch.Tensor): Query.
+            key (torch.Tensor): Key.
+            value (torch.Tensor): Value.
+            mask (torch.Tensor): Mask.
+
+        Returns:
+            torch.Tensor: MHA output.
+        """
 
         # Dimensions
         batch_size, embed_dim = query.size()
@@ -312,8 +411,23 @@ class NaviFormer(nn.Module):
             output.permute(1, 2, 0, 3).contiguous().view(-1, 1, self.num_heads * value_size)
         )
 
-    def sha_decoder(self, query_logit, key_logit, mask, normalize=True):
-        """Single-Head Attention (SHA) mechanism"""
+    def sha_decoder(self,
+                    query_logit: torch.Tensor,
+                    key_logit: torch.Tensor,
+                    mask: torch.Tensor,
+                    normalize: bool = True) -> torch.Tensor:
+        """
+        Single-Head Attention (SHA) mechanism.
+
+        Args:
+            query_logit (torch.Tensor): Logit for query.
+            key_logit (torch.Tensor): Logit for key.
+            mask (torch.Tensor): Mask.
+            normalize (bool): Whether to normalize.
+
+        Returns:
+            torch.Tensor: Log probabilities.
+        """
 
         # Embedding dimension
         embed_dim = query_logit.size(-1)
@@ -342,8 +456,17 @@ class NaviFormer(nn.Module):
         assert not torch.isnan(log_probs).any(), "NaNs found in logits"
         return log_probs
 
-    def select_node(self, probs, mask):
-        """ArgMax or sample from probabilities to select next node."""
+    def select_node(self, probs: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """
+        ArgMax or sample from probabilities to select next node.
+
+        Args:
+            probs (torch.Tensor): Probabilities.
+            mask (torch.Tensor): Mask.
+
+        Returns:
+            torch.Tensor: Selected indices.
+        """
 
         # ArgMax (Exploitation)
         if self.decode_type == "greedy":
@@ -365,8 +488,17 @@ class NaviFormer(nn.Module):
             assert False, "Unknown decode type"
         return selected
 
-    def predict_direction(self, state, next_node):
-        """Direction/Angle prediction."""
+    def predict_direction(self, state: Any, next_node: torch.Tensor) -> torch.Tensor:
+        """
+        Predict direction/angle.
+
+        Args:
+            state (torch.Tensor): State information.
+            next_node (torch.Tensor): Next node.
+
+        Returns:
+            torch.Tensor: Log probabilities.
+        """
         batch_ids = torch.arange(next_node.shape[0], dtype=torch.int64, device=next_node.device)
 
         # Get next selected goal
@@ -387,7 +519,16 @@ class NaviFormer(nn.Module):
         log_probs = torch.log_softmax(policy, dim=-1)
         return log_probs
 
-    def select_direction(self, probs):
+    def select_direction(self, probs: torch.Tensor) -> torch.Tensor:
+        """
+        Select direction.
+
+        Args:
+            probs (torch.Tensor): Probabilities.
+
+        Returns:
+            torch.Tensor: Selected direction.
+        """
 
         # ArgMax (Exploitation)
         if self.decode_type == "greedy":
@@ -401,12 +542,31 @@ class NaviFormer(nn.Module):
         return action
 
     @staticmethod
-    def select_log_probs(log_probs, selected):
-        """Calculate log likelihood for loss function."""
+    def select_log_probs(log_probs: torch.Tensor, selected: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate log likelihood for loss function.
+
+        Args:
+            log_probs (torch.Tensor): Log probabilities.
+            selected (torch.Tensor): Selected indices.
+
+        Returns:
+            torch.Tensor: Log probability.
+        """
         log_prob = log_probs.gather(1, selected[..., None])[..., 0]
         assert (log_prob > -1000).data.all(), "Log probabilities should not be -inf, check sampling procedure!"
         return log_prob
 
     @staticmethod
-    def combine_log_probs(log_probs_node, log_probs_direction):
+    def combine_log_probs(log_probs_node: torch.Tensor, log_probs_direction: torch.Tensor) -> torch.Tensor:
+        """
+        Combine log probabilities.
+
+        Args:
+            log_probs_node (torch.Tensor): Log probabilities for nodes.
+            log_probs_direction (torch.Tensor): Log probabilities for directions.
+
+        Returns:
+            torch.Tensor: Combined log probabilities.
+        """
         return (log_probs_node + log_probs_direction) / 2

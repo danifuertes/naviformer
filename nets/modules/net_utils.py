@@ -1,15 +1,32 @@
 import torch
-from typing import NamedTuple
+from typing import Any, Tuple, NamedTuple
 
 
-def set_decode_type(model, decode_type):
+def set_decode_type(model: torch.nn.Module | torch.nn.DataParallel, decode_type: str) -> None:
+    """
+    Set the decoding type for the model.
+
+    Args:
+        model (torch.nn.Module): The model to set decode type for.
+        decode_type (str): The decode type to set ('greedy' or 'sampling').
+    """
     if isinstance(model, torch.nn.DataParallel):
         model = model.module
     model.set_decode_type(decode_type)
 
 
-def input_embed(state, embed, embed_depot):
-    """Embedding for the inputs"""
+def input_embed(state: Any, embed: torch.nn.Module, embed_depot: torch.nn.Module) -> torch.Tensor:
+    """
+    Embedding for the inputs.
+
+    Args:
+        state (Any): The state of the environment.
+        embed (torch.nn.Module): The embedding module.
+        embed_depot (torch.nn.Module): The embedding module for the depot.
+
+    Returns:
+        torch.Tensor: The concatenated embeddings.
+    """
 
     # Input embedding of start depot (coordinates) and nodes (coordinates and prizes)
     embeddings = (
@@ -18,7 +35,8 @@ def input_embed(state, embed, embed_depot):
             torch.cat((
                 state.regions,
                 *(feature[..., None] for feature in state.get_features())
-            ), dim=-1))
+            ), dim=-1)
+        )
     )
 
     # Input embedding of end depot (coordinates)
@@ -29,9 +47,18 @@ def input_embed(state, embed, embed_depot):
     return torch.cat(embeddings, dim=1)
 
 
-def make_heads(num_heads, v):
-    """Create heads for Multi-Head Attention."""
-    return v.contiguous().view(v.size(0), v.size(1), num_heads, -1).permute(2, 0, 1, 3)  # (N_heads, B, N, H)
+def make_heads(num_heads: int, x: torch.Tensor) -> torch.Tensor:
+    """
+    Create heads for Multi-Head Attention.
+
+    Args:
+        num_heads (int): The number of attention heads.
+        x (torch.Tensor): The input tensor.
+
+    Returns:
+        torch.Tensor: The reshaped tensor.
+    """
+    return x.contiguous().view(x.size(0), x.size(1), num_heads, -1).permute(2, 0, 1, 3)  # (N_heads, B, N, H)
 
 
 class AttentionModelFixed(NamedTuple):
@@ -48,7 +75,16 @@ class AttentionModelFixed(NamedTuple):
     obs_map: torch.Tensor
     obs_grid: torch.Tensor
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: slice or torch.Tensor) -> 'AttentionModelFixed':
+        """
+        Get item based on the key.
+
+        Args:
+            key (slice or torch.Tensor): The index or slice.
+
+        Returns:
+            AttentionModelFixed: The sliced named tuple.
+        """
         assert torch.is_tensor(key) or isinstance(key, slice)
         return AttentionModelFixed(
             graph_embedding=self.graph_embedding[key],
@@ -62,8 +98,18 @@ class AttentionModelFixed(NamedTuple):
         )
 
 
-def create_obs_map(obs, patch_size, map_size):
-    """Create a map of the scenario representing the obstacles as bidimensional gaussian distributions."""
+def create_obs_map(obs: torch.Tensor, patch_size: int, map_size: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Create a map of the scenario representing the obstacles as bidimensional gaussian distributions.
+
+    Args:
+        obs (torch.Tensor): The tensor representing the obstacles.
+        patch_size (int): The size of the patches.
+        map_size (int): The size of the map.
+
+    Returns:
+        tuple: The obstacle map and grid.
+    """
 
     batch_size, num_obs, _ = obs.shape
     device = obs.device
@@ -98,7 +144,27 @@ def create_obs_map(obs, patch_size, map_size):
     return z, grid
 
 
-def create_local_maps(pos, obs_map, obs_grid, goal, patch_size, map_size):
+def create_local_maps(
+        pos: torch.Tensor,
+        obs_map: torch.Tensor,
+        obs_grid: torch.Tensor,
+        goal: torch.Tensor,
+        patch_size: int,
+        map_size: int) -> torch.Tensor:
+    """
+    Create local maps.
+
+    Args:
+        pos (torch.Tensor): The position tensor.
+        obs_map (torch.Tensor): The obstacle map.
+        obs_grid (torch.Tensor): The obstacle grid.
+        goal (torch.Tensor): The goal tensor.
+        patch_size (int): The patch size.
+        map_size (int): The size of the map.
+
+    Returns:
+        torch.Tensor: The local maps.
+    """
 
     # Get agent position in obstacle map
     map_x = torch.floor(pos[..., 0] * map_size).type(torch.long)
@@ -144,46 +210,3 @@ def create_local_maps(pos, obs_map, obs_grid, goal, patch_size, map_size):
 
     # Return obstacle patches and goal patches
     return torch.concat((obs_patches, goal_patches), dim=1)
-
-
-def create_global_obs_map(obs, patch_size, map_size):
-    """Create a map of the scenario representing the obstacles as bidimensional gaussian distributions."""
-
-    batch_size, num_obs, _ = obs.shape
-    device = obs.device
-    padding = patch_size // 2  # To ensure patches don't exceed image boundaries
-
-    # Define meshgrid
-    x = torch.linspace(0, map_size, map_size).to(device)
-    y = torch.linspace(0, map_size, map_size).to(device)
-    x, y = torch.meshgrid(x, y, indexing="ij")
-    x = x.expand(batch_size, map_size, map_size)
-    y = y.expand(batch_size, map_size, map_size)
-
-    # Calculate global map
-    z = torch.zeros(batch_size, map_size, map_size).to(device)
-    for i in range(num_obs):
-        x0 = obs[:, i, 0].view(-1, 1, 1) * map_size
-        y0 = obs[:, i, 1].view(-1, 1, 1) * map_size
-        s = obs[:, i, 2].view(-1, 1, 1) * map_size + 0.01
-        g = 1 / (2 * torch.pi * s * s) * torch.exp(
-            -(torch.div((x - x0) ** 2, (2 * s ** 2)) + torch.div((y - y0) ** 2, (2 * s ** 2)))
-        )  # https://stackoverflow.com/questions/69024270/how-to-create-a-normal-2d-distribution-in-pytorch
-        max_g = g.view(batch_size, -1).max(dim=-1).values
-        w = torch.where((max_g > 0).view(-1, 1, 1), g / max_g.view(-1, 1, 1), g)
-        z += w
-    z = z.permute(0, 2, 1)
-
-    # Create meshgrid of coordinates for each batch element
-    grid_range = torch.arange(0, map_size).to(device)
-    grid_x, grid_y = torch.meshgrid(grid_range, grid_range, indexing='ij')
-    grid = torch.stack((grid_x, grid_y), dim=-1).expand(batch_size, map_size, map_size, 2)
-    return z, grid
-
-
-def create_global_maps(pos, obs_map, obs_grid, goal, patch_size, map_size):
-    cond = (obs_grid - pos[:, None] * map_size).norm(2, dim=-1) <= 2
-    obs_map = torch.where(cond, 5 * torch.ones_like(obs_map), obs_map)
-    cond = (obs_grid - goal[:, None, None] * map_size).norm(2, dim=-1) <= 2
-    obs_map = torch.where(cond, -5 * torch.ones_like(obs_map), obs_map)
-    return obs_map[:, None]
