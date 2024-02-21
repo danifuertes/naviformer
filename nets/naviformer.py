@@ -142,7 +142,8 @@ class NaviFormer(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, batch: dict | torch.Tensor, env: Any):
+    def forward(self, batch: dict | torch.Tensor, env: Any) -> \
+            Tuple[int, int, torch.Tensor, torch.Tensor]:
         """
         Forward pass of the model.
 
@@ -186,7 +187,7 @@ class NaviFormer(nn.Module):
 
     def step(self, state: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Execute an step.
+        Execute a step.
 
         Args:
             state (Any): State information.

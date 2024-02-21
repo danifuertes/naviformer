@@ -243,8 +243,7 @@ class NopState(NamedTuple):
         new_position[nf] = self.position[nf] + torch.stack((polar.real, polar.imag), -1)[nf]
 
         # Update length of route
-        length = self.length + (new_position - self.position).norm(p=2, dim=-1)
-        assert not torch.isinf(length).any(), "Length is inf"
+        length = self.length + self.time_step  # self.length + (new_position - self.position).norm(p=2, dim=-1)
 
         # Distance to next node
         next_node_coords = self.get_regions_by_index(next_node_idx)
@@ -338,7 +337,7 @@ class NopState(NamedTuple):
             self.i > 0,  # Not first step
             torch.logical_or(
                 torch.logical_and(
-                    torch.eq(self.prev_node, self.get_end_idx()),  # Going to end
+                    torch.eq(self.prev_node, self.get_end_idx()),  # Going to end depot
                     (self.position - self.get_depot_end()).norm(p=2, dim=-1) <= self.time_step  # On end depot
                 ),
                 torch.logical_or(
