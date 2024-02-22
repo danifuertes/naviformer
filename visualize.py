@@ -1,6 +1,10 @@
+import numpy as np
+
 from utils import *
 from demo.demo import demo
 from envs import load_problem
+from nets import load_model_eval
+from benchmarks import solve_nop, parse_runs
 
 
 PROBLEMS = global_vars()['PROBLEMS']
@@ -60,32 +64,27 @@ def compute_benchmark(opts, batch, **kwargs):
 
     # Get baseline algorithms
     route_planner, path_planner = opts.model.split('-')
-    runs, route_planner = get_runs(route_planner)
+    runs, route_planner = parse_runs(route_planner)
     assert route_planner in ROUTE_PLANNERS, f"'{route_planner}' not in route planners list: {ROUTE_PLANNERS}"
     assert path_planner in PATH_PLANNERS,   f"'{path_planner}' not in route planners list: {PATH_PLANNERS}"
     route_name = {
         'ga': 'GA',
-        'ortools': 'OR-Tools'
+        'ortools': 'OR-Tools',
     }.get(route_planner)
     path_name = {
         'a_star': 'A*',
-        'd_star': 'D*'
+        'd_star': 'D*',
     }.get(path_planner)
     model_name = route_name + '-' + path_name
 
     # Prepare inputs
-    batch = batch2numpy(batch, True)
+    batch, dict_keys = batch2numpy(batch, to_list=True)
 
     # Calculate tours
-    _, tour, _, success = solve_nav_op(
+    _, actions, _, success = solve_nop(
         directory=None,
-        name=None,
-        depot=batch['depot'],
-        loc=batch['loc'],
-        prize=batch['prize'],
-        max_length=batch['max_length'],
-        depot2=batch['depot2'],
-        obs=batch['obs'],
+        instance_name=None,
+        scenario=batch,
         route_planner=route_planner,
         path_planner=path_planner,
         disable_cache=False,
@@ -93,12 +92,15 @@ def compute_benchmark(opts, batch, **kwargs):
     )
 
     # Lists to numpy arrays
-    if isinstance(batch, dict):
-        for k, v in batch.items():
-            batch[k] = np.array(v)
-    else:
+    actions = np.array(actions)
+    if dict_keys is None:
         batch = np.array(batch)
-    return np.array(tour).squeeze()[None], batch, model_name, success
+    else:
+        new_batch = {}
+        for i, k in enumerate(dict_keys):
+            new_batch[k] = np.array(batch[i])
+        batch = new_batch
+    return actions, batch, model_name, success
 
 
 def compute_network(opts, batch, env, device, **kwargs):
@@ -116,7 +118,7 @@ def compute_network(opts, batch, env, device, **kwargs):
         _, _, actions, _ = model(batch, env)
 
     # Inputs to numpy
-    batch = batch2numpy(batch)
+    batch, _ = batch2numpy(batch)
 
     # Tours to numpy
     end_ids = 0 if opts.num_depots == 1 else opts.num_nodes + 1
@@ -156,14 +158,17 @@ def main(opts):
     method = compute_network if os.path.exists(opts.model) else compute_benchmark
     
     # Apply algorithm
-    actions, batch, model_name, success = method(opts, batch, env, device)
+    actions, batch, model_name, success = method(opts=opts, batch=batch, env=env, device=device)
 
     # Print results
     if isinstance(actions, list):
         for i, action in enumerate(actions):
             print(f"Agent {i + 1} - Nodes: {action[0]}\n Directions: {action[1]}")
     else:
-        print(f"Nodes: {actions.transpose(1, 0)[0]}\n Directions: {actions.transpose(1, 0)[1]}")
+        if actions.shape[1] == 2:
+            print(f"Nodes: {actions.transpose(1, 0)[0]}\n Directions: {actions.transpose(1, 0)[1]}")
+        else:
+            print(f"Nodes: {actions.transpose(1, 0)[0]}\n Directions: {actions[:, 1:]}")
 
     # Plot results
     if opts.num_agents == 1:

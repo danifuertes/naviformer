@@ -242,8 +242,8 @@ def route_planning(
     return goal_coords, goal_id, on_depot
 
 
-def solve_nop(directory: str,
-              name: str,
+def solve_nop(directory: str | None,
+              instance_name: str | None,
               scenario: list,
               route_planner: str = 'ortools',
               path_planner: str = 'a_star',
@@ -253,8 +253,8 @@ def solve_nop(directory: str,
     Solve the Navigation Orienteering Problem (NOP).
 
     Args:
-        directory (str): Directory path.
-        name (str): Name.
+        directory (str or None): Directory path.
+        instance_name (str or None): Name of the instance (typically a number, such as '001', '002', etc.).
         scenario (list): Scenario information.
         route_planner (str): Route planner.
         path_planner (str): Path planner.
@@ -269,9 +269,9 @@ def solve_nop(directory: str,
     # Filename
     problem_filename = os.path.join(
         directory, "{}.{}-{}{}.pkl".format(
-            name, route_planner, path_planner, sec_local_search if sec_local_search > 0 else ''
+            instance_name, route_planner, path_planner, sec_local_search if sec_local_search > 0 else ''
         )
-    ) if directory is not None else ''
+    ) if directory is not None or instance_name is not None else ''
 
     # Get results from cache
     if os.path.isfile(problem_filename) and not disable_cache:

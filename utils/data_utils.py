@@ -105,15 +105,22 @@ def batch2numpy(batch: torch.Tensor | dict, to_list: bool = False) -> np.ndarray
 
     Returns:
         numpy.ndarray or dict: Converted batch of numpy arrays.
+        list or None: List of keys (if batch was a dict).
     """
     if isinstance(batch, dict):
+        dict_keys = sorted(batch.keys())
         for k, v in batch.items():
-            batch[k] = v.cpu().detach().numpy()
-            batch[k] = batch[k].tolist() if to_list else batch[k].squeeze()
+            batch[k] = v.cpu().detach().numpy().squeeze()
+        if to_list:
+            new_batch = []
+            for k in dict_keys:
+                new_batch.append(batch[k].tolist())
+            batch = new_batch
+        return batch, dict_keys
     else:
         batch = batch.cpu().detach().numpy()
         batch = batch.tolist() if to_list else batch.squeeze()
-    return batch
+        return batch, None
 
 
 def actions2numpy(actions: torch.Tensor | list, end_ids: int) -> np.ndarray | list:
