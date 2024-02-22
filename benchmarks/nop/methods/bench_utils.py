@@ -248,7 +248,7 @@ def solve_nop(directory: str | None,
               route_planner: str = 'ortools',
               path_planner: str = 'a_star',
               disable_cache: bool = False,
-              sec_local_search: int = 0) -> Tuple[float, list, float, bool]:
+              sec_local_search: int = 0) -> Tuple[float, list, float, bool, int]:
     """
     Solve the Navigation Orienteering Problem (NOP).
 
@@ -275,10 +275,11 @@ def solve_nop(directory: str | None,
 
     # Get results from cache
     if os.path.isfile(problem_filename) and not disable_cache:
-        (cost, nav, duration, success) = load_dataset(problem_filename)
+        (cost, nav, success, duration, num_nodes) = load_dataset(problem_filename)
 
     # Calculate results
     else:
+        num_nodes = len(loc)
 
         # Upscale scenario for path planner
         scale = 200
@@ -336,5 +337,5 @@ def solve_nop(directory: str | None,
         # Save results
         nav = nav.tolist()
         if directory is not None:
-            save_dataset((cost, nav, duration, success), problem_filename)
-    return cost, nav, duration, success
+            save_dataset((cost, nav, success, duration, num_nodes), problem_filename)
+    return cost, nav, success, duration, num_nodes

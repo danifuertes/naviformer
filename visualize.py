@@ -1,4 +1,7 @@
+import argparse
+
 import numpy as np
+import torch
 
 from utils import *
 from demo.demo import demo
@@ -13,7 +16,16 @@ ROUTE_PLANNERS = global_vars()['ROUTE_PLANNERS']
 PATH_PLANNERS = global_vars()['PATH_PLANNERS']
 
 
-def arguments(args=None):
+def get_options(args: list = None) -> argparse.Namespace:
+    """
+    Parse command-line arguments and return options.
+
+    Args:
+        args (list): List of command-line arguments.
+
+    Returns:
+        argparse.Namespace: The parsed arguments.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=0, help='Random seed to use')
 
@@ -60,7 +72,18 @@ def arguments(args=None):
     return opts
 
 
-def compute_benchmark(opts, batch, **kwargs):
+def compute_benchmark(opts: argparse.Namespace, batch: torch.Tensor | dict, **kwargs) -> \
+        Tuple[np.ndarray, np.ndarray | dict, str, bool]:
+    """
+    Apply an algorithm from the benchmark to calculate the visualized path.
+
+    Args:
+        opts (argparse.Namespace): Options.
+        batch (torch.Tensor or dict): Input batch.
+
+    Returns:
+        tuple: A tuple containing the actions, batch, model name, and success flag.
+    """
 
     # Get baseline algorithms
     route_planner, path_planner = opts.model.split('-')
@@ -81,7 +104,7 @@ def compute_benchmark(opts, batch, **kwargs):
     batch, dict_keys = batch2numpy(batch, to_list=True)
 
     # Calculate tours
-    _, actions, _, success = solve_nop(
+    _, actions, _, success, _ = solve_nop(
         directory=None,
         instance_name=None,
         scenario=batch,
@@ -103,7 +126,24 @@ def compute_benchmark(opts, batch, **kwargs):
     return actions, batch, model_name, success
 
 
-def compute_network(opts, batch, env, device, **kwargs):
+def compute_network(
+        opts: argparse.Namespace,
+        batch: torch.Tensor | dict,
+        env: Any,
+        device: torch.types.Device,
+        **kwargs) -> Tuple[np.ndarray, np.ndarray | dict, str, bool]:
+    """
+    Apply a neural network to calculate the visualized path.
+
+    Args:
+        opts (argparse.Namespace): Options.
+        batch (torch.Tensor or dict): Input batch.
+        env (Any): The environment.
+        device (torch.device): The device.
+
+    Returns:
+        tuple: A tuple containing the actions, batch, model name, and success flag.
+    """
 
     # Load model (Transformer, PN, GPN) for evaluation on the chosen device
     model, args = load_model_eval(opts.model)
@@ -127,7 +167,13 @@ def compute_network(opts, batch, env, device, **kwargs):
     return actions, batch, model_name, success
 
 
-def main(opts):
+def main(opts: argparse.Namespace) -> None:
+    """
+    Main function.
+
+    Args:
+        opts (argparse.Namespace): Parsed command line arguments.
+    """
 
     # Set the device
     device = torch.device("cuda" if opts.use_cuda else "cpu")
@@ -156,7 +202,7 @@ def main(opts):
 
     # Use benchmark algorithm or trained model
     method = compute_network if os.path.exists(opts.model) else compute_benchmark
-    
+
     # Apply algorithm
     actions, batch, model_name, success = method(opts=opts, batch=batch, env=env, device=device)
 
@@ -181,4 +227,4 @@ def main(opts):
 
 
 if __name__ == "__main__":
-    main(arguments())
+    main(get_options())

@@ -119,11 +119,14 @@ def check_nop_benchmark_options(opts: argparse.Namespace) -> None:
     """
     assert opts.route_planner in ROUTE_PLANNERS, f"'{opts.route_planner}' not in route planners list: {ROUTE_PLANNERS}"
     assert opts.path_planner in PATH_PLANNERS,   f"'{opts.path_planner}' not in route planners list: {PATH_PLANNERS}"
-    assert opts.offset > 0,                      f"offset must be positive, found: {opts.offset}"
-    assert opts.n > 0,                           f"n must be positive, found: {opts.n}"
-    assert opts.n > opts.offset,                 f"n must be > offset, found n={opts.n} and offset={opts.offset}"
     assert opts.o is None or len(opts.datasets) == 1, f"Cannot specify result filename with more than one dataset"
     assert opts.problem, f"'{opts.problem}' not in problem list: {PROBLEMS}"
+    if opts.n is not None:
+        assert opts.n > 0,                           f"n must be positive, found: {opts.n}"
+    if opts.offset is not None:
+        assert opts.offset > 0,                      f"offset must be positive, found: {opts.offset}"
+    if opts.n is not None and opts.offset is not None:
+        assert opts.n > opts.offset,                 f"n must be > offset, found n={opts.n} and offset={opts.offset}"
 
 
 def check_test_options(opts: argparse.Namespace) -> None:

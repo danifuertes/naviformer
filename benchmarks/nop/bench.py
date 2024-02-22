@@ -100,6 +100,19 @@ def main(opts) -> None:
             use_multiprocessing=opts.multiprocessing,
         )
 
+        # Collect results
+        new_results = [[] for _ in range(5)]
+        for result in results:
+            new_results[0] = [*new_results[0], result[0]]
+            new_results[1] = [*new_results[1], result[1]]
+            new_results[2] = [*new_results[2], result[2]]
+            new_results[3] = [*new_results[3], result[3]]
+            new_results[4] = [*new_results[4], result[4]]
+        results = new_results
+
+        # Add parallelism info to results
+        results.append(parallelism)
+
         # Print results
         print_results(opts.problem)(results)
 
