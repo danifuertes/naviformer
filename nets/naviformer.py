@@ -142,17 +142,18 @@ class NaviFormer(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, batch: dict | torch.Tensor, env: Any) -> \
-            Tuple[int, int, torch.Tensor, torch.Tensor]:
+    def forward(self, batch: dict | torch.Tensor, env: Any, eval: bool = True) -> \
+            Tuple[Any, Any, torch.Tensor, torch.Tensor] | Tuple[Any, Any]:
         """
         Forward pass of the model.
 
         Args:
             batch (dict or torch.Tensor): Batch data.
             env (Any): Environment data.
+            eval (bool): Indicates if model is in eval mode, hence returning the actions and success
 
         Returns:
-            tuple: Total reward, total log probability, actions, and success.
+            tuple: Total reward, total log probability, actions (if eval=True), and success (if eval=True).
         """
 
         # Initialize state and other info
@@ -183,7 +184,9 @@ class NaviFormer(nn.Module):
         success = state.check_success()
 
         # Return reward and log probabilities
-        return total_reward, total_log_prob, torch.stack(actions, dim=1), success
+        if eval:
+            return total_reward, total_log_prob, torch.stack(actions, dim=1), success
+        return total_reward, total_log_prob
 
     def step(self, state: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         """

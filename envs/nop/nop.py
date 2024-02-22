@@ -243,7 +243,7 @@ class NopState(NamedTuple):
         new_position[nf] = self.position[nf] + torch.stack((polar.real, polar.imag), -1)[nf]
 
         # Update length of route
-        length = self.length + self.time_step  # self.length + (new_position - self.position).norm(p=2, dim=-1)
+        length = self.length + (new_position - self.position).norm(p=2, dim=-1)  # self.length + self.time_step
 
         # Distance to next node
         next_node_coords = self.get_regions_by_index(next_node_idx)
