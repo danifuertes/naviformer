@@ -41,6 +41,7 @@ def get_options(args: list = None) -> argparse.Namespace:
 
     # Agents
     parser.add_argument('--num_agents', type=int, default=1, help="Number of agents")
+    parser.add_argument('--num_dirs', type=int, default=4, help="Number of directions the agent can choose to move")
 
     # Data
     parser.add_argument('--epoch_size', type=int, default=1280000, help="Number of instances per epoch during training")
@@ -183,6 +184,7 @@ def main(opts: argparse.Namespace) -> None:
         max_length=opts.max_length,
         max_nodes=opts.max_nodes,
         max_obs=opts.max_obs,
+        num_dirs=opts.num_dirs,
         desc='Validation data'
     )
 

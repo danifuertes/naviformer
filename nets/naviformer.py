@@ -11,6 +11,7 @@ class NaviFormer(nn.Module):
 
     def __init__(self,
                  embed_dim: int = 128,
+                 num_dirs: int = 4,
                  combined_mha: bool = True,
                  two_step: str = '',
                  max_obs: int = 0,
@@ -25,6 +26,7 @@ class NaviFormer(nn.Module):
 
         Args:
             embed_dim (int): Dimension of embeddings.
+            num_dirs (int): Number of the directions the agent can choose to move.
             combined_mha (bool): Whether to use combined/standard MHA encoder.
             two_step (str): Pre-trained route planner for 2-step navigation planner.
             max_obs (int): Maximum number of obstacles.
@@ -105,15 +107,15 @@ class NaviFormer(nn.Module):
         self.project_mha = nn.Linear(embed_dim, embed_dim, bias=False)
 
         # Direction dimensions
-        conv_dim = 4            # Convolution dimension
-        self.num_actions = 4    # Number of actions
-        self.patch_size = 16    # Size of local maps
-        self.map_size = 64      # Size of global map
+        conv_dim = 4              # Convolution dimension
+        self.num_dirs = num_dirs  # Number of actions
+        self.patch_size = 16      # Size of local maps
+        self.map_size = 64        # Size of global map
 
         # Direction embeddings
         self.position_embed = nn.Linear(2, embed_dim)   # Embedding for the agent position
         self.path_prediction = nn.Sequential(               # Prediction layers
-            nn.Conv2d(self.num_actions * 2, conv_dim, kernel_size=3, padding='same'),
+            nn.Conv2d(self.num_dirs * 2, conv_dim, kernel_size=3, padding='same'),
             nn.ReLU(),
             nn.BatchNorm2d(conv_dim, affine=True),
             nn.Conv2d(conv_dim, conv_dim, kernel_size=3, padding='same'),
@@ -123,7 +125,7 @@ class NaviFormer(nn.Module):
             nn.Linear(conv_dim * self.patch_size * self.patch_size // 2, embed_dim),
             nn.ReLU(),
             (nn.BatchNorm1d if normalization == 'batch' else nn.InstanceNorm1d)(embed_dim, affine=True),
-            nn.Linear(embed_dim, self.num_actions),
+            nn.Linear(embed_dim, self.num_dirs),
         )
 
         # Initialize fixed data (computed only during the first iteration)

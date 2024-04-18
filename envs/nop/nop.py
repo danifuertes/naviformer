@@ -13,7 +13,7 @@ class NopEnv:
         batch_size (int): Batch size.
         num_workers (int): Number of workers for data loading.
         device (torch.device): Torch device.
-        num_actions (int): Number of possible actions.
+        num_dirs (int): Number of possible actions.
         time_step (float): Time step.
     """
 
@@ -21,7 +21,7 @@ class NopEnv:
                  batch_size: int = 1024,
                  num_workers: int = 0,
                  device: torch.types.Device = None,
-                 num_actions: int = 4,
+                 num_dirs: int = 4,
                  time_step: float = 2e-2,
                  *args, **kwargs) -> None:
         """
@@ -31,7 +31,7 @@ class NopEnv:
             batch_size (int): Batch size.
             num_workers (int): Number of workers for data loading.
             device (torch.device): Torch device.
-            num_actions (int): Number of possible actions.
+            num_dirs (int): Number of possible actions.
             time_step (float): Time step.
         """
 
@@ -49,7 +49,7 @@ class NopEnv:
         self.device = device
 
         # Number of actions
-        self.num_actions = num_actions
+        self.num_dirs = num_dirs
 
         # Time step
         self.time_step = time_step
@@ -61,7 +61,7 @@ class NopEnv:
         Args:
             batch (dict or torch.Tensor): batch of data.
         """
-        return NopState.initialize(batch, num_actions=self.num_actions, time_step=self.time_step)
+        return NopState.initialize(batch, num_dirs=self.num_dirs, time_step=self.time_step)
 
 
 class NopState(NamedTuple):
@@ -87,7 +87,7 @@ class NopState(NamedTuple):
     # Misc
     i: torch.Tensor                 # Keeps track of step
     device: torch.device            # Torch device (gpu or cpu)
-    num_actions: int                # Number of directions to follow
+    num_dirs: int                # Number of directions to follow
     time_step: float                # Duration/length of a step
     reward: torch.Tensor            # Last collected reward
     done: bool                      # Terminal state for every element of the batch
@@ -125,7 +125,7 @@ class NopState(NamedTuple):
 
     @staticmethod
     def initialize(batch: dict | torch.Tensor,
-                   num_actions: int = 4,
+                   num_dirs: int = 4,
                    time_step: float = 2e-2,
                    min_value: int = 0,
                    max_value: int = 1) -> Any:
@@ -134,7 +134,7 @@ class NopState(NamedTuple):
 
         Args:
             batch (dict or torch.Tensor): Input batch.
-            num_actions (int): Number of possible actions.
+            num_dirs (int): Number of possible directions.
             time_step (float): Time step.
             min_value (float): Minimum value for normalization.
             max_value (float): Maximum value for normalization.
@@ -208,7 +208,7 @@ class NopState(NamedTuple):
             position=depot_ini,
             length=length,
             is_traveling=is_traveling,
-            num_actions=num_actions,
+            num_dirs=num_dirs,
             time_step=time_step,
             min_value=min_value,
             max_value=max_value,
@@ -435,7 +435,7 @@ class NopState(NamedTuple):
         """
 
         # Initialize mask
-        mask = torch.zeros((self.get_batch_size(), self.num_actions), dtype=torch.bool, device=self.device)
+        mask = torch.zeros((self.get_batch_size(), self.num_dirs), dtype=torch.bool, device=self.device)
 
         # Ban actions (directions) that lead out of the map | TODO: adapt for more than 4 actions
         mask[self.position[..., 0] + self.time_step > 1, 0] = 1
@@ -448,8 +448,8 @@ class NopState(NamedTuple):
             return mask.bool()
 
         # Avoid performing the action opposite to that performed before
-        banned_actions = self.prev_action[..., None] + self.num_actions / 2
-        banned_actions[banned_actions > self.num_actions - 1] -= self.num_actions
+        banned_actions = self.prev_action[..., None] + self.num_dirs / 2
+        banned_actions[banned_actions > self.num_dirs - 1] -= self.num_dirs
         mask = mask.scatter(-1, banned_actions.long(), 1)
         return mask.bool()
 

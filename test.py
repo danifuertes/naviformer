@@ -60,6 +60,7 @@ def main(opts):
     model.to(device)
     model_name = args['fancy_name']
     problem_name = args['problem']
+    num_dirs = args['num_dirs']
 
     # Load problem
     problem = load_problem(problem_name)
@@ -79,11 +80,12 @@ def main(opts):
             num_workers=opts.num_workers,
             device=device,
             filename=dataset_path,
+            num_dirs=num_dirs,
             desc='Load data'
         )
 
         # Get batches from dataset
-        for batch_id, batch in enumerate(tqdm(test_env.dataloader, desc='Testing'.ljust(15))):
+        for batch in tqdm(test_env.dataloader, desc='Testing'.ljust(15)):
             batch = move_to(batch, device=device)
 
             # Run episode

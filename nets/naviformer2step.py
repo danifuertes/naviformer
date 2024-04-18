@@ -3,9 +3,6 @@ import math
 from torch import nn
 from torch.utils.checkpoint import checkpoint
 
-# from utils.functions import sample_many, adapt_multi_nav
-# from utils.beam_search import CachedLookup
-
 from .modules import *
 
 
@@ -45,6 +42,7 @@ class NaviFormer2Step(nn.Module):
                  embed_dim,
                  hidden_dim,
                  problem,
+                 num_dirs=4,
                  combined_mha=True,
                  num_heads=8,
                  num_blocks=2,

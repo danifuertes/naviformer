@@ -37,7 +37,8 @@ def load_model_train(opts: argparse.Namespace, ensure_instance: str = '', two_st
         tanh_clipping=opts.tanh_clipping,
         max_obs=opts.max_obs,
         combined_mha=opts.combined_mha,
-        two_step=opts.two_step
+        two_step=opts.two_step,
+        num_dirs=opts.num_dirs,
     ).to(opts.device)
 
     # Ensure model is an instance of the correct class
@@ -116,6 +117,7 @@ def load_model_eval(path: str,
         combined_mha=args.get('combined_mha', False),
         two_step=args.get('two_step', ''),
         max_obs=args.get('max_obs', 5),
+        num_dirs=args.get('num_dirs', 4),
         **kwargs
     )
 
