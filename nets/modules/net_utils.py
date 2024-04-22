@@ -75,7 +75,7 @@ class AttentionModelFixed(NamedTuple):
     obs_map: torch.Tensor
     obs_grid: torch.Tensor
 
-    def __getitem__(self, key: slice or torch.Tensor) -> 'AttentionModelFixed':
+    def __getitem__(self, key: slice | torch.Tensor) -> 'AttentionModelFixed':
         """
         Get item based on the key.
 
@@ -94,7 +94,7 @@ class AttentionModelFixed(NamedTuple):
             key_logit=self.key_logit[key],
             obs_embedding_mean=self.obs_embedding_mean[key],
             obs_map=self.obs_map[key],
-            obs_grid=self.obs_grid[key]
+            obs_grid=self.obs_grid[key],
         )
 
 

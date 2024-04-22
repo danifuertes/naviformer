@@ -87,7 +87,7 @@ class NopState(NamedTuple):
     # Misc
     i: torch.Tensor                 # Keeps track of step
     device: torch.device            # Torch device (gpu or cpu)
-    num_dirs: int                # Number of directions to follow
+    num_dirs: int                   # Number of directions to follow
     time_step: float                # Duration/length of a step
     reward: torch.Tensor            # Last collected reward
     done: bool                      # Terminal state for every element of the batch
@@ -426,18 +426,18 @@ class NopState(NamedTuple):
         mask[finished, end_idx] = 0  # Always allow visiting end depot to prevent running out of nodes to choose
         return mask
 
-    def get_mask_actions(self) -> torch.Tensor:
+    def get_mask_dirs(self) -> torch.Tensor:
         """
-        Get the mask for actions.
+        Get the mask for directions.
 
         Returns:
-            torch.Tensor: Mask for actions.
+            torch.Tensor: Mask for directions.
         """
 
         # Initialize mask
         mask = torch.zeros((self.get_batch_size(), self.num_dirs), dtype=torch.bool, device=self.device)
 
-        # Ban actions (directions) that lead out of the map | TODO: adapt for more than 4 actions
+        # Ban actions (directions) that lead out of the map | TODO: adapt for more than 4 dirs
         mask[self.position[..., 0] + self.time_step > 1, 0] = 1
         mask[self.position[..., 1] + self.time_step > 1, 1] = 1
         mask[self.position[..., 0] - self.time_step < 0, 2] = 1
@@ -504,6 +504,19 @@ class NopState(NamedTuple):
             return torch.cat((self.regions, self.depot_end[:, None]), axis=-2)
         else:
             return torch.cat((self.depot_ini[:, None], self.regions, self.depot_end[:, None]), axis=-2)
+        
+    def get_dist2regions(self, position) -> torch.Tensor:
+        """
+        Calculates distance from given position (batch_size, 2) to each of the regions (batch_size, num_regions, 2).
+
+        Args:
+            position (_type_): coordinates, with shape (batch_size, 2).
+
+        Returns:
+            torch.Tensor: calculated distance, with shape (batch_size).
+        """
+        num_regions = self.get_num_regions()
+        return (position.tile(num_regions).reshape(-1, num_regions, 2) - self.get_regions).norm(p=2, dim=-1)
 
     def get_prizes(self) -> torch.Tensor:
         """
