@@ -96,7 +96,7 @@ class Attention(nn.Module):
         return e, logits
 
 
-class PointerNetwork(nn.Module):
+class PN(nn.Module):
     """Pointer network"""
 
     def __init__(self,
@@ -119,7 +119,7 @@ class PointerNetwork(nn.Module):
             tanh_clipping (float): Clip tanh values.
             normalization (str): Type of normalization.
         """
-        super(PointerNetwork, self).__init__()
+        super(PN, self).__init__()
         assert embed_dim % num_heads == 0, f"Embedding dimension should be dividable by number of heads, " \
                                            f"found embed_dim={embed_dim} and num_heads={num_heads}"
 
@@ -135,11 +135,8 @@ class PointerNetwork(nn.Module):
         self.decode_type = None                          # Greedy or sampling
         self.tanh_clipping = tanh_clipping               # Clip tanh values
 
-        # Last node embedding (embed_dim) + remaining length and current position (3) + number of obstacles (max_obs)
-        step_context_dim = embed_dim + 3 + max_obs
-
         # Node dimension: x, y, prize, max_length
-        self.node_dim = 3
+        self.node_dim = 4
         
         # Initial embedding projection
         std = 1. / math.sqrt(embed_dim)
@@ -167,29 +164,6 @@ class PointerNetwork(nn.Module):
         self.mask_glimpses = mask_inner
         self.mask_logits = mask_logits
         self.decode_type = None  # Needs to be set explicitly before use
-        
-        
-
-        # Special embedding projection for depot node
-        self.init_embed_depot = nn.Linear(2, embed_dim)
-
-        # Initial embedding
-        self.init_embed = nn.Linear(self.node_dim, embed_dim)
-        
-        # Project graph embedding to get decoder embeddings for MHA: key, value, key_logit (so 3 * embed_dim)
-        self.project_graph = nn.Linear(embed_dim, 3 * embed_dim, bias=False)
-
-        # Project averaged graph embedding (across nodes) for state embedding
-        self.project_graph_mean = nn.Linear(embed_dim, embed_dim, bias=False)
-
-        # Project averaged obstacle embedding (across obstacles) for state embedding
-        self.project_obs_mean = nn.Linear(embed_dim, embed_dim, bias=False)
-
-        # Project state embedding
-        self.project_state = nn.Linear(step_context_dim, embed_dim, bias=False)
-
-        # Projection for the result of inner MHA (num_heads * val_dim == embed_dim, so input is embed_dim)
-        self.project_mha = nn.Linear(embed_dim, embed_dim, bias=False)
 
         # Direction dimensions
         conv_dim = 4              # Convolution dimension
@@ -198,7 +172,6 @@ class PointerNetwork(nn.Module):
         self.map_size = 64        # Size of global map
 
         # Direction embeddings
-        self.position_embed = nn.Linear(2, embed_dim)   # Embedding for the agent position
         self.path_prediction = nn.Sequential(               # Prediction layers
             nn.Conv2d(self.num_dirs * 2, conv_dim, kernel_size=3, padding='same'),
             nn.ReLU(),
@@ -322,7 +295,7 @@ class PointerNetwork(nn.Module):
             
             # Initialize hidden state of encoder and decoder LSTMs
             h0 = c0 = torch.autograd.Variable(
-                torch.zeros(1, batch_size, self.hidden_dim, out=node_embedding.data.new()),
+                torch.zeros(1, batch_size, self.embed_dim, out=node_embedding.data.new()),
                 requires_grad=False
             )
             hidden = (h0, c0)
@@ -335,10 +308,10 @@ class PointerNetwork(nn.Module):
             
             # Current node embedding is calculated from embedding of last visited node
             current_node = torch.gather(
-                node_embedding,
-                0,
-                state.prev_node.contiguous().view(1, batch_size, 1).expand(1, batch_size, *node_embedding.size()[2:])
-            )
+                input=node_embedding,
+                dim=0,
+                index=state.prev_node.contiguous().view(1, batch_size, 1).expand(1, batch_size, *node_embedding.size()[2:])
+            ).squeeze(0)
         
         # Calculate context embedding
         context, hidden = self.get_context_embedding(node_embedding, *hidden)
@@ -402,13 +375,13 @@ class PointerNetwork(nn.Module):
         regions = state.get_regions()
         
         # Get regions' prizes
-        prizes = state.get_prizes()
+        prizes = state.get_prizes()[..., None]
         
         # Get distance from each node to the depot
         dist2regions = state.get_dist2regions(state.position)
         
         # Get max length nd substract the distance from each node to the depot. Then, normalize it by diving the result by max length
-        max_length = state.get_remaining_length() - dist2regions
+        max_length = state.get_remaining_length()[..., None] - dist2regions
         max_length = max_length[..., None] / state.get_remaining_length().tile(num_regions).reshape(-1, num_regions, 1)
 
         # Concatenate spatial info (loc), prize info (prize) and temporal info (max_length)
@@ -519,8 +492,8 @@ class PointerNetwork(nn.Module):
         # Apply prediction layers
         policy = self.path_prediction(maps)
 
-        # Ban prohibited actions
-        policy[state.get_mask_actions()] = -math.inf
+        # Ban prohibited directions
+        policy[state.get_mask_dirs()] = -math.inf
 
         # Return normalized (softmax) log probabilities
         log_probs = torch.log_softmax(policy, dim=-1)

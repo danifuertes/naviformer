@@ -15,7 +15,7 @@ def global_vars() -> dict:
     return {
         'PROBLEMS': ['nop', 'op'],
         'DATA_DIST': ['const', 'unif', 'dist'],
-        'MODELS': ['naviformer'],
+        'MODELS': ['naviformer', 'pn', 'gpn'],
         'NORM': ['batch', 'instance'],
         'DECODE_STRATEGY': ['greedy', 'sample'],
         'BASELINES': ['rollout', 'critic', 'exponential', None],
@@ -181,7 +181,7 @@ def check_train_options(opts: argparse.Namespace) -> None:
     assert opts.log_step >= 0,          f"log_step must be non negative, found: {opts.log_step}"
     assert opts.bl_warmup >= 0,         f"bl_warmup must be non negative, found: {opts.bl_warmup}"
     assert (opts.bl_warmup == 0) or (opts.baseline == 'rollout'), f"bl_warmup only for baseline=rollout"
-    assert opts.epoch_size % opts.batch_size == 0, f"epoch_size must be multiple of batch_size, found {opts.epoch_size}"
+    # assert opts.epoch_size % opts.batch_size == 0, f"epoch_size must be multiple of batch_size, found {opts.epoch_size}"
     assert opts.combined_mha and opts.max_obs or not opts.combined_mha, \
         f"If combined_mha=True, then it is required that max_obs > 0"
     if os.path.isdir(opts.two_step) or opts.two_step.endswith('.pkl') or opts.two_step_train:

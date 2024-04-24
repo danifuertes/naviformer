@@ -516,7 +516,7 @@ class NopState(NamedTuple):
             torch.Tensor: calculated distance, with shape (batch_size).
         """
         num_regions = self.get_num_regions()
-        return (position.tile(num_regions).reshape(-1, num_regions, 2) - self.get_regions).norm(p=2, dim=-1)
+        return (position.tile(num_regions).reshape(-1, num_regions, 2) - self.get_regions()).norm(p=2, dim=-1)
 
     def get_prizes(self) -> torch.Tensor:
         """

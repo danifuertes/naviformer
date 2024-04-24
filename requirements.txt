@@ -1,5 +1,5 @@
 matplotlib==3.7.2
-ortools==9.8.3296
+ortools==9.4.1874
 protobuf==3.20.0
 tensorboard-logger==0.1.0
 torch==2.1.2

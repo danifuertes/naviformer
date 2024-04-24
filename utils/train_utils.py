@@ -19,7 +19,7 @@ def move_to(var: dict | torch.Tensor, device: torch.types.Device) -> torch.Tenso
     """
     if isinstance(var, dict):
         return {k: move_to(v, device) for k, v in var.items()}
-    return var.to(device)
+    return var.to(device, non_blocking=True)
 
 
 def set_decode_type(model: torch.nn.Module, decode_type: str):

@@ -5,6 +5,8 @@ from typing import Tuple
 from .modules.net_utils import *
 from .naviformer import NaviFormer
 from .naviformer2step import NaviFormer2Step
+from .pn import PN
+from .gpn import GPN
 from utils import load_cpu, load_args, load_file, load_file_or_dir, get_inner_model
 
 
@@ -26,6 +28,8 @@ def load_model_train(opts: argparse.Namespace, ensure_instance: str = '', two_st
     model_class = {
         'naviformer': NaviFormer,
         'naviformer_2step': NaviFormer2Step,
+        'pn': PN,
+        'gpn': GPN,
     }.get(opts.model, None)
     assert model_class is not None, "Unknown model: {}".format(model_class)
 
@@ -105,6 +109,8 @@ def load_model_eval(path: str,
     model_class = {
         'naviformer': NaviFormer,
         'naviformer_2step': NaviFormer2Step,
+        'pointer': PointerNetwork,
+        'gpointer': GraphPointerNetwork,
     }.get(args.get('model', ''), None)
     assert model_class is not None, "Unknown model: {}".format(model_class)
     kwargs = {} if kwargs is None else kwargs

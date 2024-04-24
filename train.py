@@ -27,7 +27,7 @@ def get_options(args: list = None) -> argparse.Namespace:
     parser.add_argument('--seed', type=int, default=1234, help="Random seed to use")
 
     # Problem
-    parser.add_argument('--problem', type=str, default='nav_op', help=f"Problem to solve: {', '.join(PROBLEMS)}")
+    parser.add_argument('--problem', type=str, default='nop', help=f"Problem to solve: {', '.join(PROBLEMS)}")
     parser.add_argument('--num_nodes', type=int, default=20, help="Number of visitable nodes")
     parser.add_argument('--max_nodes', type=int, default=0, help='Max number of nodes (random num_nodes padded with'
                         'dummys until max_nodes). Max length depends on the random num_nodes. Disable with max_nodes=0')
@@ -64,8 +64,8 @@ def get_options(args: list = None) -> argparse.Namespace:
                         help=f"Epoch to unfreeze 2-step route planning model. Use -1 to keep frozen")
 
     # Training
-    parser.add_argument('--batch_size', type=int, default=512, help="Number of instances per batch during training")
-    parser.add_argument('--eval_batch_size', type=int, default=1024, help="Batch size during (baseline) evaluation")
+    parser.add_argument('--batch_size', type=int, default=2048, help="Number of instances per batch during training")
+    parser.add_argument('--eval_batch_size', type=int, default=4096, help="Batch size during (baseline) evaluation")
     parser.add_argument('--epochs', type=int, default=100, help="The number of epochs to train")
     parser.add_argument('--first_epoch', type=int, default=0, help="Initial epoch (relevant for learning rate decay)")
     parser.add_argument('--lr_model', type=float, default=1e-4, help="Set the learning rate for the actor network")
