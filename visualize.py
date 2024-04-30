@@ -31,7 +31,7 @@ def get_options(args: list = None) -> argparse.Namespace:
 
     # Model
     parser.add_argument('--model', type=str, help="Path to trained model. For benchmarks, combine route and path"
-                                                "planners with '-'. Example: ga-a_star")
+                                                  "planners with '-'. Example: ga-a_star")
 
     # Problem
     parser.add_argument('--problem', type=str, default='nop', help=f"Problem to solve: {', '.join(PROBLEMS)}")
@@ -98,6 +98,7 @@ def compute_benchmark(opts: argparse.Namespace, batch: torch.Tensor | dict, **kw
     path_name = {
         'a_star': 'A*',
         'd_star': 'D*',
+        'neural_a_star': 'NA*',
     }.get(path_planner)
     model_name = route_name + '-' + path_name
 
@@ -112,7 +113,7 @@ def compute_benchmark(opts: argparse.Namespace, batch: torch.Tensor | dict, **kw
         route_planner=route_planner,
         path_planner=path_planner,
         disable_cache=False,
-        sec_local_search=runs
+        sec_local_search=runs,
     )
 
     # Lists to numpy arrays
@@ -221,7 +222,7 @@ def main(opts: argparse.Namespace) -> None:
     # Plot results
     if opts.num_agents == 1:
         actions = [actions]
-    plot(actions, batch, env.name, model_name, data_dist=opts.data_dist, success=success)
+    plot(actions, batch, env.name, model_name, data_dist=opts.data_dist, success=success, num_dirs=opts.num_dirs)
 
     # RoboMaster demo
     if opts.demo:

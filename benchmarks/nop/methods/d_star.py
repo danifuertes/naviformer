@@ -168,7 +168,7 @@ class DStar:
     # plt.scatter(ex, ey)
     # plt.imshow(ab, origin='lower')
     # plt.show()
-    def planning(self, sx, sy, ex, ey, limit):
+    def planning(self, sx, sy, ex, ey, limit, **kwargs):
         sx, sy = round(sx), round(sy)
         ex, ey = round(ex), round(ey)
         start = self.map.map[sx][sy]

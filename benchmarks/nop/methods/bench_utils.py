@@ -174,6 +174,9 @@ def path_planning(obs: np.ndarray, method: str = 'a_star', scale: int = 100, mar
     # D*
     elif method == 'd_star':
         planner = DStar(ox, oy, scale)
+        
+    elif method == 'neural_a_star':
+        planner = NeuralAStar()
 
     # D* Lite
     else:
