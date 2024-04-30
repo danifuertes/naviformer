@@ -97,7 +97,8 @@ def plot(
         problem: str,
         model_name: str,
         data_dist: str = '',
-        success: bool = True) -> None:
+        success: bool = True,
+        num_dirs: int = 4) -> None:
     """
     Plot a general tour and then individual tours for each agent.
 
@@ -108,6 +109,7 @@ def plot(
         model_name (str): The name of the model.
         data_dist (str): The data distribution.
         success (bool): Whether the tours were successful.
+        num_dirs(int): number of directions available for predictors.
     """
 
     # General plot
@@ -132,7 +134,8 @@ def plot(
                 ax=ax,
                 scenario=scenario,
                 colors=colors,
-                title=title
+                title=title,
+                num_dirs=num_dirs,
             )
         plt.show()
     else:
@@ -144,7 +147,7 @@ def plot(
         nodes = len(nodes[np.logical_and(nodes != 0, nodes != len(batch['loc']) + 1)])
         nodes -= 0 if success else 1
         plot_path(
-            tour, batch, problem, model_name, data_dist=data_dist, iteration=i, nodes=nodes, colors=colors
+            tour, batch, problem, model_name, data_dist=data_dist, iteration=i, nodes=nodes, colors=colors, num_dirs=num_dirs
         )
 
 
@@ -155,6 +158,7 @@ def plot_path(
         model_name: str,
         data_dist: str = '',
         nodes: float = 0.,
+        num_dirs: int = 4,
         iteration: int = 0,
         save_image: str = '',
         show: bool = True,
@@ -173,6 +177,7 @@ def plot_path(
             model_name (str): The name of the model.
             data_dist (str): The data distribution.
             nodes (float): The number of nodes.
+            num_dirs (int): Number of directions available for predictors.
             iteration (int): The iteration number.
             save_image (str): Path to save the image.
             show (bool): Whether to show the plot.
@@ -240,7 +245,7 @@ def plot_path(
         if i == tour.shape[0] - 2:
             print()
         if tour.shape[1] == 2:
-            angle = tour[i, 1] * 2 * np.pi / 4
+            angle = tour[i, 1] * 2 * np.pi / num_dirs
             new_coord = cur_coord + np.array([time_step * np.cos(angle), time_step * np.sin(angle)])
         else:
             new_coord = tour[i, 1:]

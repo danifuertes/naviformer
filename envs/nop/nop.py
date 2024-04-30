@@ -237,7 +237,7 @@ class NopState(NamedTuple):
         # Update next position
         polar = torch.polar(
             torch.zeros_like(self.position[:, 0]) + torch.tensor(self.time_step),
-            next_action * 2 * torch.pi / 4
+            next_action * 2 * torch.pi / self.num_dirs
         )
         new_position = self.position.clone()
         new_position[nf] = self.position[nf] + torch.stack((polar.real, polar.imag), -1)[nf]
