@@ -30,7 +30,7 @@ def get_options(args: list = None) -> argparse.Namespace:
     parser.add_argument('--seed', type=int, default=0, help='Random seed to use')
 
     # Model
-    parser.add_argument('model', type=str, help="Path to trained model. For benchmarks, combine route and path"
+    parser.add_argument('--model', type=str, help="Path to trained model. For benchmarks, combine route and path"
                                                 "planners with '-'. Example: ga-a_star")
 
     # Problem

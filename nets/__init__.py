@@ -109,8 +109,8 @@ def load_model_eval(path: str,
     model_class = {
         'naviformer': NaviFormer,
         'naviformer_2step': NaviFormer2Step,
-        'pointer': PointerNetwork,
-        'gpointer': GraphPointerNetwork,
+        'pn': PN,
+        'gpn': GPN,
     }.get(args.get('model', ''), None)
     assert model_class is not None, "Unknown model: {}".format(model_class)
     kwargs = {} if kwargs is None else kwargs
@@ -130,7 +130,9 @@ def load_model_eval(path: str,
     # Get fancy name
     args['fancy_name'] = {
         'naviformer': 'NaviFormer',
-        'naviformer_2step': 'NaviFormer2Step'
+        'naviformer_2step': 'NaviFormer2Step',
+        'pn': 'PN',
+        'gpn': 'GPN',
     }.get(args.get('model', ''), 'NoName')
 
     # Ensure model is an instance of the correct class

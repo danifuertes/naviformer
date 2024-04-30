@@ -188,12 +188,12 @@ def plot_path(
     time_step = 2e-2
 
     # Initialize plot
-    fig = plt.figure(iteration) if fig is None else fig
+    # fig = plt.figure(iteration) if fig is None else fig
     not_ax = True if ax is None else False
     ax = plt.subplots()[1] if not_ax else ax
     if not_ax:
         ax.set_aspect('equal')
-        fig.axes.append(ax)
+        # fig.axes.append(ax)
         plt.xlim([-.05, 1.05])
         plt.ylim([-.05, 1.05])
 

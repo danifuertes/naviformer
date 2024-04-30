@@ -108,6 +108,7 @@ class NaviFormer(nn.Module):
 
         # Direction dimensions
         conv_dim = 4              # Convolution dimension
+        num_maps = 4 * 2          # Number of local maps: 4 to represent obstacles and 4 to represent goals
         self.num_dirs = num_dirs  # Number of actions
         self.patch_size = 16      # Size of local maps
         self.map_size = 64        # Size of global map
@@ -115,7 +116,7 @@ class NaviFormer(nn.Module):
         # Direction embeddings
         self.position_embed = nn.Linear(2, embed_dim)   # Embedding for the agent position
         self.path_prediction = nn.Sequential(               # Prediction layers
-            nn.Conv2d(self.num_dirs * 2, conv_dim, kernel_size=3, padding='same'),
+            nn.Conv2d(num_maps, conv_dim, kernel_size=3, padding='same'),
             nn.ReLU(),
             nn.BatchNorm2d(conv_dim, affine=True),
             nn.Conv2d(conv_dim, conv_dim, kernel_size=3, padding='same'),

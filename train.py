@@ -213,6 +213,7 @@ def main(opts: argparse.Namespace) -> None:
                 filename=opts.train_dataset,
                 max_nodes=opts.max_nodes,
                 max_obs=opts.max_obs,
+                num_dirs=opts.num_dirs,
                 desc='Train data'
             )
 
