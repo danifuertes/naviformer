@@ -8,6 +8,7 @@ See Wikipedia article (https://en.wikipedia.org/wiki/D*)
 
 """
 import math
+import numpy as np
 
 from sys import maxsize
 
@@ -86,12 +87,44 @@ class Map:
 
 
 class DStar:
-    def __init__(self, ox, oy, scale=100):
-        self.map = Map(scale + 1, scale + 1)
-        self.map.set_obstacle([(i, j) for i, j in zip(ox, oy)])
+    def __init__(self, obs, margin=5, scale=100):
+        self.create_obs_map(obs, margin=margin, scale=scale)
+        self.set_obs_map()
+
+    def create_obs_map(self, obs, margin=5, scale=100, *args, **kwargs):
+        self.ox, self.oy, self.scale = [], [], scale
+
+        # Define obstacles
+        for ob in obs:
+            cx, cy, r = ob
+            x, y = np.meshgrid(np.linspace(0, scale, scale + 1), np.linspace(0, scale, scale + 1))
+            distance = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+            points_in_circle = np.where(np.logical_and(2 * r / 3 <= distance, distance <= r))
+            x_coords = x[points_in_circle]
+            self.ox = [*self.ox, *x_coords]
+            y_coords = y[points_in_circle]
+            self.oy = [*self.oy, *y_coords]
+
+        # Define margins as obstacles
+        for ob in range(-margin, scale + margin):
+            self.ox.append(ob)
+            self.oy.append(-margin)
+
+            self.ox.append(-margin)
+            self.oy.append(ob)
+
+            self.ox.append(ob)
+            self.oy.append(scale + margin)
+
+            self.ox.append(scale + margin)
+            self.oy.append(ob)
+    
+    def set_obs_map(self):
         self.open_list = set()
         self.resolution = 2
-
+        self.map = Map(self.scale + 1, self.scale + 1)
+        self.map.set_obstacle([(i, j) for i, j in zip(self.ox, self.oy)])
+    
     def process_state(self):
         x = self.min_state()
 

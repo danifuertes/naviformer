@@ -242,7 +242,7 @@ def main(opts: argparse.Namespace) -> None:
                 batch = move_to(batch, device=opts.device)
 
                 # Run episode
-                rewards, log_prob = model(batch, train_env, eval=False)
+                rewards, log_prob = model(batch, train_env, test=False)
 
                 # Run baseline episode
                 rewards_bl, loss_bl = baseline.eval(batch, rewards, train_env)

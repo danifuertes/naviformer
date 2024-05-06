@@ -10,6 +10,7 @@ See Wikipedia article (https://en.wikipedia.org/wiki/A*_search_algorithm)
 """
 
 import math
+import numpy as np
 
 import matplotlib.pyplot as plt
 
@@ -18,14 +19,15 @@ show_animation = False
 
 class AStar:
 
-    def __init__(self, ox, oy, resolution, rr):
+    def __init__(self, obs, margin=5, scale=100, resolution=2, rr=2, *args, **kwargs):
         """
         Initialize grid map for a star planning
 
-        ox: x position list of Obstacles [m]
-        oy: y position list of Obstacles [m]
-        resolution: grid resolution [m]
-        rr: robot radius[m]
+        obs: list of obstacles
+        scale: scale factor for obstacle map
+        margin: margin value for obstacle map
+        resolution: grid resolution
+        rr: robot radius
         """
 
         self.resolution = resolution
@@ -35,7 +37,40 @@ class AStar:
         self.obstacle_map = None
         self.x_width, self.y_width = 0, 0
         self.motion = self.get_motion_model()
-        self.calc_obstacle_map(ox, oy)
+        self.create_obs_map(obs, margin=margin, scale=scale)
+        self.calc_obstacle_map(self.ox, self.oy)
+        
+    def create_obs_map(self, obs, margin=5, scale=100, *args, **kwargs):
+        self.ox, self.oy, self.scale, self.margin = [], [], scale, margin
+
+        # Define obstacles
+        for ob in obs:
+            cx, cy, r = ob
+            x, y = np.meshgrid(np.linspace(0, scale, scale + 1), np.linspace(0, scale, scale + 1))
+            distance = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+            points_in_circle = np.where(np.logical_and(2 * r / 3 <= distance, distance <= r))
+            x_coords = x[points_in_circle]
+            self.ox = [*self.ox, *x_coords]
+            y_coords = y[points_in_circle]
+            self.oy = [*self.oy, *y_coords]
+
+        # Define margins as obstacles
+        for ob in range(-margin, scale + margin):
+            self.ox.append(ob)
+            self.oy.append(-margin)
+
+            self.ox.append(-margin)
+            self.oy.append(ob)
+
+            self.ox.append(ob)
+            self.oy.append(scale + margin)
+
+            self.ox.append(scale + margin)
+            self.oy.append(ob)
+            
+    @staticmethod
+    def set_obs_map():
+        pass
 
     class Node:
         def __init__(self, x, y, cost, parent_index):
@@ -48,25 +83,46 @@ class AStar:
             return str(self.x) + "," + str(self.y) + "," + str(
                 self.cost) + "," + str(self.parent_index)
 
+    # def adjust2map(self, x, y):
+    #     if x <= self.margin:
+    #         x = self.margin + 1
+    #     elif x >= self.scale - self.margin:
+    #         x = self.scale + self.margin - 1
+    #     if y <= self.margin:
+    #         y = self.margin + 5
+    #     elif y >= self.scale - self.margin:
+    #         y = self.scale + self.margin - 1
+    #     return x, y
+    
     def planning(self, sx, sy, gx, gy, **kwargs):
         """
         A star path search
 
         input:
-            s_x: start x position [m]
-            s_y: start y position [m]
-            gx: goal x position [m]
-            gy: goal y position [m]
+            s_x: start x position
+            s_y: start y position
+            gx: goal x position
+            gy: goal y position
 
         output:
             rx: x position list of the final path
             ry: y position list of the final path
         """
+        # sx, sy = self.adjust2map(sx, sy)
+        # gx, gy = self.adjust2map(gx, gy)
 
-        start_node = self.Node(self.calc_xy_index(sx, self.min_x),
-                               self.calc_xy_index(sy, self.min_y), 0.0, -1)
-        goal_node = self.Node(self.calc_xy_index(gx, self.min_x),
-                              self.calc_xy_index(gy, self.min_y), 0.0, -1)
+        start_node = self.Node(
+            self.calc_xy_index(sx, self.min_x),
+            self.calc_xy_index(sy, self.min_y),
+            0.0,
+            -1
+        )
+        goal_node = self.Node(
+            self.calc_xy_index(gx, self.min_x),
+            self.calc_xy_index(gy, self.min_y),
+            0.0,
+            -1
+        )
 
         open_set, closed_set = dict(), dict()
         open_set[self.calc_grid_index(start_node)] = start_node
@@ -78,9 +134,10 @@ class AStar:
 
             c_id = min(
                 open_set,
-                key=lambda o: open_set[o].cost + self.calc_heuristic(goal_node,
-                                                                     open_set[
-                                                                         o]))
+                key=lambda o: open_set[o].cost + self.calc_heuristic(
+                    goal_node, open_set[o]
+                )
+            )
             current = open_set[c_id]
 
             # show graph

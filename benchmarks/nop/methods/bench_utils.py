@@ -13,6 +13,7 @@ from multiprocessing.dummy import Pool as ThreadPool
 from .a_star import AStar
 from .d_star import DStar
 from .d_star_lite import DStarLite
+from .neural_a_star import NeuralAStar
 from .ortools import solve_op_ortools
 from .genetic import solve_op_genetic
 from utils import save_dataset, load_dataset
@@ -118,71 +119,38 @@ def multiprocessing(
     return results, num_cpus
 
 
-def path_planning(obs: np.ndarray, method: str = 'a_star', scale: int = 100, margin: int = 5) -> Tuple[Any, list, list]:
+def path_planning(obs: np.ndarray, method: str = 'a_star', scale: int = 100, margin: int = 5) -> Any:
     """
     Perform (low-level) path planning.
 
     Args:
         obs (np.ndarray): List of obstacles.
         method (str): Method name for path planning.
-        scale (int): Scale factor.
-        margin (int): Margin value.
+        scale (int): Scale factor for obstacle map.
+        margin (int): Margin value for obstacle map.
 
     Returns:
-        tuple: Planner, x-coordinates of obstacles, y-coordinates of obstacles.
+        Any: Path Planner.
     """
-
-    # Define obstacles for path planning
-    def obstacle_list(obs_, margin_=5):
-        ox_, oy_ = [], []
-
-        # Define obstacles
-        for ob in obs_:
-            cx, cy, r = ob
-            x, y = np.meshgrid(np.linspace(0, scale, scale + 1), np.linspace(0, scale, scale + 1))
-            distance = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
-            points_in_circle = np.where(np.logical_and(2 * r / 3 <= distance, distance <= r))
-            x_coords = x[points_in_circle]
-            ox_ = [*ox_, *x_coords]
-            y_coords = y[points_in_circle]
-            oy_ = [*oy_, *y_coords]
-
-        # Define margins as obstacles
-        for ob in range(-margin_, scale + margin_):
-            ox_.append(ob)
-            oy_.append(-margin_)
-
-            ox_.append(-margin_)
-            oy_.append(ob)
-
-            ox_.append(ob)
-            oy_.append(scale + margin_)
-
-            ox_.append(scale + margin_)
-            oy_.append(ob)
-        return ox_, oy_
-
-    # Parameters
-    grid_size = 2
-    robot_radius = 2
-    ox, oy = obstacle_list(obs, margin)
 
     # A*
     if method == 'a_star':
-        planner = AStar(ox, oy, grid_size, robot_radius)
+        grid_size, robot_radius = 2, 2
+        planner = AStar(obs, margin=margin, scale=scale, resolution=grid_size, rr=robot_radius)
 
     # D*
     elif method == 'd_star':
-        planner = DStar(ox, oy, scale)
+        planner = DStar(obs, margin=margin, scale=scale)
         
+    # Neural A*
     elif method == 'neural_a_star':
-        planner = NeuralAStar()
+        planner = NeuralAStar(obs, scale=scale, grid_size=(scale, scale))
 
     # D* Lite
     else:
-        assert method == 'd_star_lite', 'Path planner not in list: [a_star, d_star_lite]'
-        planner = DStarLite(ox, oy, [0, 0], [0, 0])
-    return planner, ox, oy
+        assert method == 'd_star_lite', 'Path planner not in list: [a_star, d_lite, neural_a_star, d_star_lite]'
+        planner = DStarLite(obs, [0, 0], [0, 0])
+    return planner
 
 
 def route_planning(
@@ -297,7 +265,7 @@ def solve_nop(directory: str | None,
         prize_copy = prize.copy()
 
         # Initialize parameters
-        planner, ox, oy = path_planning(obs, method=path_planner, scale=scale)
+        planner = path_planning(obs, method=path_planner, scale=scale)
         finished, success, start, nav = False, False, depot_ini, np.array([[0, *(depot_ini / scale)]])
         id_map, end_id = [m for m in range(len(loc))], len(loc) + 1
 
@@ -314,7 +282,7 @@ def solve_nop(directory: str | None,
             # Path planning
             rx, ry, success_path = planner.planning(*start, *goal_coords, limit=max_length)
             if path_planner == 'd_star':
-                planner = DStar(ox, oy, scale)
+                planner.set_obs_map()
             steps = np.concatenate(([start], np.stack((rx, ry), axis=1), [goal_coords]), axis=0)
             error = len(rx) == 1 and np.linalg.norm(start - goal_coords) > planner.resolution / scale
             start = np.array(goal_coords)
@@ -327,7 +295,7 @@ def solve_nop(directory: str | None,
 
             # Check if finished
             bumped = np.any([np.any(np.linalg.norm(np.array(ob[:2]) - steps, axis=1) < ob[2]) for ob in obs]) or error
-            success = max_length >= np.linalg.norm(depot_end - start) and not bumped and success_path
+            success = max_length >= np.linalg.norm(depot_end - start) and not bumped and success_path  # TODO: if time limit surpassed, goal=end depot
             finished = on_depot or not success
 
         # Measure clock time

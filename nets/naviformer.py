@@ -19,7 +19,6 @@ class NaviFormer(nn.Module):
                  num_blocks: int = 2,
                  tanh_clipping: float = 10.,
                  normalization: str = 'batch',
-                 checkpoint_enc: bool = False,
                  **kwargs) -> None:
         """
         Initialize NaviFormer model.
@@ -34,7 +33,6 @@ class NaviFormer(nn.Module):
             num_blocks (int): Number of encoding blocks.
             tanh_clipping (float): Clip tanh values.
             normalization (str): Type of normalization.
-            checkpoint_enc (bool): Whether to checkpoint to decrease memory usage.
         """
         super(NaviFormer, self).__init__()
         assert embed_dim % num_heads == 0, f"Embedding dimension should be dividable by number of heads, " \
@@ -51,7 +49,6 @@ class NaviFormer(nn.Module):
         self.combined_mha = combined_mha                 # Use combined/standard MHA encoder
         self.num_heads = num_heads                       # Number of heads for MHA layers
         self.num_blocks = num_blocks                     # Number of encoding blocks
-        self.checkpoint_enc = checkpoint_enc             # Checkpoint to decrease memory usage
 
         # Decoder parameters
         self.temp = 1.0                                  # SoftMax temperature parameter
@@ -144,7 +141,7 @@ class NaviFormer(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, batch: dict | torch.Tensor, env: Any, eval: bool = True) -> \
+    def forward(self, batch: dict | torch.Tensor, env: Any, test: bool = True) -> \
             Tuple[Any, Any, torch.Tensor, torch.Tensor] | Tuple[Any, Any]:
         """
         Forward pass of the model.
@@ -152,10 +149,10 @@ class NaviFormer(nn.Module):
         Args:
             batch (dict or torch.Tensor): Batch data.
             env (Any): Environment data.
-            eval (bool): Indicates if model is in eval mode, hence returning the actions and success
+            test (bool): Indicates if model is in test mode, hence returning the actions and success
 
         Returns:
-            tuple: Total reward, total log probability, actions (if eval=True), and success (if eval=True).
+            tuple: Total reward, total log probability, actions (if test=True), and success (if test=True).
         """
 
         # Initialize state and other info
@@ -186,7 +183,7 @@ class NaviFormer(nn.Module):
         success = state.check_success()
 
         # Return reward and log probabilities
-        if eval:
+        if test:
             return total_reward, total_log_prob, torch.stack(actions, dim=1), success
         return total_reward, total_log_prob
 
