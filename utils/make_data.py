@@ -44,7 +44,8 @@ def get_options() -> argparse.Namespace:
                         help="Normalized time limit to solve the problem")
     parser.add_argument('--data_dist', type=str, nargs='+', default=['const'],
                         help=f"Data distribution (reward values of regions) of OP. Options: {', '.join(DATA_DIST)}")
-    parser.add_argument('--max_obs', type=int, default=0, help='Maximum number of obstacles')
+    parser.add_argument('--num_obs', type=int, nargs='+', default=(0, 0), help='Tuple of 2 values indicating min and max number of obstacles')
+    parser.add_argument('--rad_obs', type=float, nargs='+', default=(.02, .12), help='Tuple of 2 values indicating min and max radious of obstacles')
 
     # Misc
     parser.add_argument("--name", type=str, required=True, help="Name to identify dataset (test, validation...)")
@@ -91,14 +92,14 @@ def main(opts: argparse.Namespace) -> None:
             )
             if not os.path.exists(data_dir):
                 os.makedirs(data_dir, exist_ok=True)
-            length_str = '' if opts.max_nodes else '_L{}'.format(
+            length_str = '' if opts.max_nodes else '_T{}'.format(
                 int(opts.max_length[i]) if opts.max_length[i].is_integer() else opts.max_length[i]
             )
-            obs_str = '_{}obs'.format(opts.max_obs) if opts.max_obs else ''
+            obs_str = f"_{opts.num_obs[0]}-{opts.num_obs[1]}obs"
             # obs_str = '_j{}obs'.format(OBS) if opts.max_obs else ''
             filename = os.path.join(
                 data_dir,
-                "{}_seed{}{}{}.pkl".format(opts.name, opts.seed, length_str, obs_str)
+                f"{opts.name}_seed{opts.seed}{length_str}{obs_str}.pkl"
             )
 
             # Generate dataset
@@ -110,7 +111,8 @@ def main(opts: argparse.Namespace) -> None:
                     max_length=opts.max_length[i],
                     num_depots=opts.num_depots,
                     max_nodes=opts.max_nodes,
-                    max_obs=opts.max_obs,
+                    num_obs=opts.num_obs,
+                    rad_obs=opts.rad_obs,
                     desc='\tGenerating data').data
             )
 

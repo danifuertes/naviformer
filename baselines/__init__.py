@@ -33,7 +33,7 @@ def load_baseline(opts: argparse.Namespace, model: torch.nn.Module, problem: Any
         baseline = CriticBaseline(
             Critic(
                 input_dim1=3,
-                input_dim2=3 if opts.max_obs else None,
+                input_dim2=3 if opts.num_obs[1] else None,
                 embed_dim=opts.embed_dim,
                 num_blocks=opts.num_blocks,
                 normalization=opts.normalization,

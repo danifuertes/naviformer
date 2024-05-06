@@ -14,7 +14,7 @@ class NaviFormer(nn.Module):
                  num_dirs: int = 4,
                  combined_mha: bool = True,
                  two_step: str = '',
-                 max_obs: int = 0,
+                 num_obs: tuple = (0, 0),
                  num_heads: int = 8,
                  num_blocks: int = 2,
                  tanh_clipping: float = 10.,
@@ -29,7 +29,7 @@ class NaviFormer(nn.Module):
             num_dirs (int): Number of the directions the agent can choose to move.
             combined_mha (bool): Whether to use combined/standard MHA encoder.
             two_step (str): Pre-trained route planner for 2-step navigation planner.
-            max_obs (int): Maximum number of obstacles.
+            num_obs (tuple): (Minimum, Maximum) number of obstacles.
             num_heads (int): Number of heads for MHA layers.
             num_blocks (int): Number of encoding blocks.
             tanh_clipping (float): Clip tanh values.
@@ -41,7 +41,7 @@ class NaviFormer(nn.Module):
                                            f"found embed_dim={embed_dim} and num_heads={num_heads}"
 
         # Problem parameters
-        self.max_obs = max_obs                           # Maximum number of obstacles
+        self.num_obs = num_obs                           # (Minimum, Maximum) number of obstacles
         self.agent_id = 0                                # Agent ID (for decentralized multiagent problem)
 
         # Dimensions
@@ -59,7 +59,7 @@ class NaviFormer(nn.Module):
         self.tanh_clipping = tanh_clipping               # Clip tanh values
 
         # Last node embedding (embed_dim) + remaining length and current position (3) + number of obstacles (max_obs)
-        step_context_dim = embed_dim + 3 + max_obs
+        step_context_dim = embed_dim + 3 + num_obs[1]
 
         # Node dimension: x, y, prize (Nav_OP)
         node_dim = 3
@@ -85,7 +85,7 @@ class NaviFormer(nn.Module):
             self.embedder = MHAEncoder(  # Node to node to obstacle attention
                 num_heads=num_heads,
                 embed_dim=embed_dim,
-                node_dim2=3 if max_obs > 0 else None,  # Obstacles (circles): x_center, y_center, radius
+                node_dim2=3 if num_obs[1] else None,  # Obstacles (circles): x_center, y_center, radius
                 num_blocks=num_blocks,
                 normalization=normalization,
                 combined=combined_mha
@@ -255,7 +255,7 @@ class NaviFormer(nn.Module):
             return self.base_route_model.precompute(embeddings, obs, map_info=(self.patch_size, self.map_size))
 
         # Obstacle embeddings
-        if self.max_obs:
+        if self.num_obs[1]:
             graph_embedding, obs_embedding = embeddings
 
             # Project averaged obstacle embedding (across obstacles) for state embedding

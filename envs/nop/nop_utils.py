@@ -19,7 +19,8 @@ class NopDataset(Dataset):
         num_depots (int): Number of depots.
         max_length (float): Maximum length.
         max_nodes (int): Maximum number of nodes.
-        max_obs (int): Maximum number of obstacles.
+        num_obs (tuple): (Minimum, Maximum) number of obstacles.
+        rad_obs (tuple): (Minimum, Maximum) radious of obstacles.
         data_dist (str): Data distribution ('const', 'unif', or 'dist').
         num_samples (int): Number of samples.
         offset (int): Offset.
@@ -32,9 +33,10 @@ class NopDataset(Dataset):
                  num_depots: int = 1,
                  max_length: float = 2.,
                  max_nodes: int = 0,
-                 max_obs: int = 0,
+                 num_obs: tuple = (0, 0),
+                 rad_obs: tuple = (.05, .2),
                  data_dist: str = 'const',
-                 num_samples: int = 1000000,
+                 num_samples: int = 1e6,
                  offset: int = 0,
                  filename: str = '',
                  desc: str = '',
@@ -78,11 +80,12 @@ class NopDataset(Dataset):
                 'num_depots': num_depots,
                 'max_length': max_length,
                 'max_nodes': max_nodes,
-                'max_obs': max_obs,
+                'num_obs': num_obs,
+                'rad_obs': rad_obs,
             }
 
             # This manner of generating data is necessary when obstacles are generated
-            if max_obs:
+            if num_obs[1]:
 
                 # Create DataLoader to generate batches of data
                 from torch.utils.data import DataLoader
@@ -120,14 +123,14 @@ class NopDatasetLarge(Dataset):
         filename (str): File name.
         distribution (str): Data distribution.
         num_depots (int): Number of depots.
-        max_obs (int): Maximum number of obstacles.
+        num_obs (tuple): (Minimum, Maximum) number of obstacles.
     """
 
     def __init__(self,
                  filename: str | None = None,
                  distribution: str = 'coop',
                  num_depots: int = 1,
-                 max_obs: int = 0,
+                 num_obs: tuple = (0, 0),
                  **kwargs) -> None:
         """Initialize NopDatasetLarge with the given parameters."""
         super(NopDatasetLarge, self).__init__()
@@ -136,7 +139,7 @@ class NopDatasetLarge(Dataset):
         assert os.path.isdir(filename)
         self.filename = filename
         self.num_depots = num_depots
-        self.max_obs = max_obs
+        self.num_obs = num_obs
 
         print('Loading dataset...')
         self.size = len(os.listdir(filename))
@@ -149,7 +152,7 @@ class NopDatasetLarge(Dataset):
         """Get a sample from the dataset at the given index."""
         data = load_dataset(os.path.join(self.filename, str(idx).zfill(9)))
         elements = ['depot_ini', 'depot_end', 'loc', 'prize', 'max_length']
-        if self.max_obs:
+        if self.num_obs[1]:
             elements.append('obs')
         elements = sorted(elements)
         return {element: torch.FloatTensor(data[i]) for i, element in enumerate(elements)}
@@ -165,7 +168,8 @@ class NopInstance(Dataset):
         data_dist (str): Data distribution.
         num_depots (int): Number of depots.
         max_length (float): Maximum length.
-        max_obs (int): Maximum number of obstacles.
+        num_obs (tuple): (Minimum, Maximum) number of obstacles.
+        rad_obs (tuple): (Minimum, Maximum) radious of obstacles.
         max_nodes (int): Maximum number of nodes.
     """
 
@@ -175,7 +179,8 @@ class NopInstance(Dataset):
                  data_dist: str,
                  num_depots: int,
                  max_length: float,
-                 max_obs: int,
+                 num_obs: tuple,
+                 rad_obs: tuple,
                  max_nodes: int) -> None:
         """Initialize NopInstance with the given parameters."""
         super(NopInstance, self).__init__()
@@ -185,7 +190,8 @@ class NopInstance(Dataset):
         self.num_depots = num_depots
         self.max_length = max_length
         self.max_nodes = max_nodes
-        self.max_obs = max_obs
+        self.num_obs = num_obs
+        self.rad_obs = rad_obs
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
@@ -199,7 +205,8 @@ class NopInstance(Dataset):
             num_depots=self.num_depots,
             max_length=self.max_length,
             max_nodes=self.max_nodes,
-            max_obs=self.max_obs
+            num_obs=self.num_obs,
+            rad_obs=self.rad_obs,
         )
 
 
@@ -208,7 +215,8 @@ def generate_instance(num_nodes: int,
                       num_depots: int = 1,
                       max_length: float = 2.,
                       max_nodes: int = 0,
-                      max_obs: int = 0) -> dict:
+                      num_obs: tuple = (0, 0),
+                      rad_obs: tuple = (.05, .2)) -> dict:
     """
     Generate an instance (scenario) of the Navigation Orienteering Problem (NOP).
 
@@ -218,14 +226,15 @@ def generate_instance(num_nodes: int,
         num_depots (int): Number of depots.
         max_length (float): Maximum length.
         max_nodes (int): Maximum number of nodes.
-        max_obs (int): Maximum number of obstacles.
+        num_obs (tuple): (Minimum, Maximum) number of obstacles.
+        rad_obs (tuple): (Minimum, Maximum) radous of obstacles.
 
     Returns:
         dict: Instance dictionary.
     """
 
     # Obstacles
-    obs = generate_obstacles(max_obs) if max_obs else None
+    obs = generate_obstacles(*num_obs, *rad_obs) if num_obs[1] else None
 
     # Regions (that do not collide with obstacles)
     num_nodes = max_nodes if max_nodes else num_nodes
@@ -259,20 +268,20 @@ def generate_instance(num_nodes: int,
     dictionary = {'loc': loc, 'prize': prize, 'depot_ini': depot_ini, 'depot_end': depot_end, 'max_length': max_length}
 
     # Obstacles
-    if max_obs:
+    if num_obs[1]:
         dictionary['obs'] = obs
     return dictionary
 
 
-def generate_obstacles(max_obs: int = 5, min_obs: int = 0, r_max: float = 0.2, r_min: float = 0.05) -> torch.Tensor:
+def generate_obstacles(min_obs: int = 0, max_obs: int = 5, r_min: float = .05, r_max: float = .2) -> torch.Tensor:
     """
-    Generate obstacles.
+    Generate obstacles (circles).
 
     Args:
-        max_obs (int): Maximum number of obstacles.
         min_obs (int): Minimum number of obstacles.
-        r_max (float): Maximum radius.
-        r_min (float): Minimum radius.
+        max_obs (int): Maximum number of obstacles.
+        r_min (float): Minimum radius of obstacles.
+        r_max (float): Maximum radius of obstacles.
 
     Returns:
         torch.Tensor: Obstacles.

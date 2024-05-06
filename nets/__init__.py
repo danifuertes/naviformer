@@ -39,7 +39,7 @@ def load_model_train(opts: argparse.Namespace, ensure_instance: str = '', two_st
         num_blocks=opts.num_blocks,
         normalization=opts.normalization,
         tanh_clipping=opts.tanh_clipping,
-        max_obs=opts.max_obs,
+        num_obs=opts.num_obs,
         combined_mha=opts.combined_mha,
         two_step=opts.two_step,
         num_dirs=opts.num_dirs,
@@ -56,7 +56,7 @@ def load_model_train(opts: argparse.Namespace, ensure_instance: str = '', two_st
             'num_depots': opts.num_depots,
             'num_agents': opts.num_agents,
             'info_th': opts.info_th,
-            'max_obs': opts.max_obs
+            'num_obs': opts.num_obs
         }, ensure_instance='naviformer_2step')
 
     # Multi-GPU
@@ -122,7 +122,7 @@ def load_model_eval(path: str,
         tanh_clipping=args.get('tanh_clipping', 10.),
         combined_mha=args.get('combined_mha', False),
         two_step=args.get('two_step', ''),
-        max_obs=args.get('max_obs', 5),
+        num_obs=args.get('num_obs', (0, 0)),
         num_dirs=args.get('num_dirs', 4),
         **kwargs
     )

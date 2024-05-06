@@ -43,8 +43,8 @@ def get_options(args: list = None) -> argparse.Namespace:
     parser.add_argument('--max_length', type=float, default=2., help="Normalized time limit to solve the problem")
     parser.add_argument('--data_dist', type=str, default='const',
                         help=f"Data distribution (reward values of regions) of OP. Options: {', '.join(DATA_DIST)}")
-    parser.add_argument('--max_obs', type=int, default=0,
-                        help='Max number of obstacles (random number of obstacles padded with dummys)')
+    parser.add_argument('--num_obs', type=int, nargs='+', default=(0, 0), help='Tuple of 2 values indicating min and max number of obstacles')
+    parser.add_argument('--rad_obs', type=float, nargs='+', default=(.02, .12), help='Tuple of 2 values indicating min and max radious of obstacles')
 
     # Agents
     parser.add_argument('--num_agents', type=int, default=1, help="Number of agents")
@@ -195,7 +195,8 @@ def main(opts: argparse.Namespace) -> None:
         num_depots=opts.num_depots,
         max_length=opts.max_length,
         max_nodes=opts.max_nodes,
-        max_obs=opts.max_obs,
+        num_obs=opts.num_obs,
+        rad_obs=opts.rad_obs,
         num_dirs=opts.num_dirs,
         desc='Load data'
     )
