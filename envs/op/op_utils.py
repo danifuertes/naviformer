@@ -10,9 +10,9 @@ from torch.utils.data import Dataset
 from utils import load_dataset
 
 
-class NopDataset(Dataset):
+class OpDataset(Dataset):
     """
-    Dataset class for the Navigation Orienteering Problem (NOP).
+    Dataset class for the Orienteering Problem (OP).
 
     Args:
         num_nodes (int): Number of nodes.
@@ -36,13 +36,13 @@ class NopDataset(Dataset):
                  num_obs: tuple = (0, 0),
                  rad_obs: tuple = (.05, .2),
                  data_dist: str = 'const',
-                 num_samples: int = 1000000,
+                 num_samples: int = 1e6,
                  offset: int = 0,
                  filename: str = '',
                  desc: str = '',
                  **kwargs) -> None:
         """Initialize NopDataset with the given parameters."""
-        super(NopDataset, self).__init__()
+        super(OpDataset, self).__init__()
 
         # Load dataset from file
         if os.path.exists(filename):
@@ -91,7 +91,7 @@ class NopDataset(Dataset):
                 from torch.utils.data import DataLoader
                 torch.multiprocessing.set_sharing_strategy('file_system')
                 batch_size, num_workers, self.data, count = 1024, 16, [], num_samples  # TODO: num_workers=16 may fail
-                dataloader = DataLoader(NopInstance(num_samples, **params), batch_size, num_workers=num_workers)
+                dataloader = DataLoader(OpInstance(num_samples, **params), batch_size, num_workers=num_workers)
 
                 # Save batches into data list
                 for batch in tqdm(dataloader, desc=desc.ljust(15)):
@@ -115,9 +115,9 @@ class NopDataset(Dataset):
         return self.data[idx]
 
 
-class NopDatasetLarge(Dataset):
+class OpDatasetLarge(Dataset):
     """
-    Dataset class for large instances of the Navigation Orienteering Problem (NOP).
+    Dataset class for large instances of the Orienteering Problem (OP).
 
     Args:
         filename (str): File name.
@@ -133,7 +133,7 @@ class NopDatasetLarge(Dataset):
                  num_obs: tuple = (0, 0),
                  **kwargs) -> None:
         """Initialize NopDatasetLarge with the given parameters."""
-        super(NopDatasetLarge, self).__init__()
+        super(OpDatasetLarge, self).__init__()
         assert distribution is not None, "Data distribution must be specified for OP"
         assert os.path.splitext(filename)[1] == '.pkl' or os.path.isdir(filename)
         assert os.path.isdir(filename)
@@ -158,7 +158,7 @@ class NopDatasetLarge(Dataset):
         return {element: torch.FloatTensor(data[i]) for i, element in enumerate(elements)}
 
 
-class NopInstance(Dataset):
+class OpInstance(Dataset):
     """
     Instance class for the Navigation Orienteering Problem (NOP).
 
@@ -183,7 +183,7 @@ class NopInstance(Dataset):
                  rad_obs: tuple,
                  max_nodes: int) -> None:
         """Initialize NopInstance with the given parameters."""
-        super(NopInstance, self).__init__()
+        super(OpInstance, self).__init__()
         self.num_samples = num_samples
         self.num_nodes = num_nodes
         self.data_dist = data_dist
@@ -218,7 +218,7 @@ def generate_instance(num_nodes: int,
                       num_obs: tuple = (0, 0),
                       rad_obs: tuple = (.05, .2)) -> dict:
     """
-    Generate an instance (scenario) of the Navigation Orienteering Problem (NOP).
+    Generate an instance (scenario) of the Orienteering Problem (OP).
 
     Args:
         num_nodes (int): Number of nodes.
@@ -353,53 +353,3 @@ def generate_regions(num_nodes: int, num_depots: int = 1, obs: torch.Tensor | No
     depot_end = points[1] if num_depots == 2 else points[0]
     loc = points[num_depots:]
     return loc, depot_ini, depot_end
-
-
-def print_nop_results(results: tuple) -> None:
-    """
-    Print NOP results.
-
-    Args:
-        results (tuple): Results tuple with reward, actions, success, duration, num_nodes, and parallelism.
-    """
-
-    # Get results info
-    reward, actions, success, duration, num_nodes, parallelism = results
-
-    # Get number of nodes visited
-    visits = []
-    for i, action in enumerate(actions):
-        nodes = np.array(action)[:, 0]
-        unique_nodes = len(np.unique(nodes)) - 1  # Remove one since end depot should not count
-        if success[i]:
-            visits.append(unique_nodes)
-
-    # Print reward
-    print("\nREWARD")
-    print(f"\tAverage reward: {-np.mean(reward):.4f} +- {2 * np.std(reward) / np.sqrt(len(reward)):.4f}")
-    print(f"\tMax reward: {-np.min(reward):.4f} | Min reward: {-np.max(reward):.4f}")
-
-    # Print success rate
-    print("\nSUCCESS")
-    print(f"\tFound success in {np.sum(success)}/{len(success)} scenarios")
-    print(f"\tRate of success: {np.mean(success):.4f} +- {2 * np.std(success) / np.sqrt(len(success)):.4f}")
-
-    # Print number of nodes visited
-    node_rate = np.array(visits) / (np.mean(num_nodes) / 2)  # Max length is fixed to allow visiting half of the nodes
-    print("\nNUMBER OF NODES VISITED")
-    print(f"\tAverage number of nodes visited: {np.mean(visits):.4f} +- {2 * np.std(visits) / np.sqrt(len(visits)):.4f}")
-    print(f"\tMax number of nodes visited: {np.max(visits):.0f} | Min number of nodes visited: {np.min(visits):.0f}")
-    print(f"\tRate of nodes visited: {np.mean(node_rate):.4f} +- {2 * np.std(node_rate) / np.sqrt(len(node_rate)):.4f}")
-
-    # Print serial duration
-    mean_time, ci_time = np.mean(duration), 2 * np.std(duration) / np.sqrt(len(duration))
-    print("\nTIME")
-    print(f"\tAverage serial duration: {mean_time} +- {ci_time} seconds")
-
-    # Print parallel duration
-    mean_time, ci_time = np.mean(duration) / parallelism, 2 * np.std(duration) / np.sqrt(len(duration)) / parallelism
-    print(f"\tAverage parallel duration: {mean_time} +- {ci_time} seconds")
-
-    # Print total time
-    total_time = np.sum(duration) / parallelism
-    print(f"\tCalculated total duration: {timedelta(seconds=int(total_time))} ({total_time} seconds)\n")

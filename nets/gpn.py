@@ -102,7 +102,7 @@ class GPN(nn.Module):
     def __init__(self,
                  embed_dim: int = 128,
                  num_dirs: int = 4,
-                 max_obs: int = 0,
+                 num_obs: tuple = (0, 0),
                  num_heads: int = 8,
                  tanh_clipping: float = 10.,
                  mask_inner=True,
@@ -114,7 +114,7 @@ class GPN(nn.Module):
         Args:
             embed_dim (int): Dimension of embeddings.
             num_dirs (int): Number of the directions the agent can choose to move.
-            max_obs (int): Maximum number of obstacles.
+            num_obs (tuple): (Minimum, Maximum) number of obstacles.
             num_heads (int): Number of heads for MHA layers.
             tanh_clipping (float): Clip tanh values.
             normalization (str): Type of normalization.
@@ -123,12 +123,9 @@ class GPN(nn.Module):
         assert embed_dim % num_heads == 0, f"Embedding dimension should be dividable by number of heads, " \
                                            f"found embed_dim={embed_dim} and num_heads={num_heads}"
 
-        # Problem parameters
-        self.max_obs = max_obs                           # Maximum number of obstacles
-        self.agent_id = 0                                # Agent ID (for decentralized multiagent problem)
-
         # Dimensions
         self.embed_dim = embed_dim                       # Dimension of embeddings
+        self.num_obs = num_obs                           # (Minimum, Maximum) number of obstacles
 
         # Decoder parameters
         self.temp = 1.0                                  # SoftMax temperature parameter
@@ -346,7 +343,7 @@ class GPN(nn.Module):
         """
 
         # Obstacle embeddings
-        if self.max_obs:
+        if self.num_obs[1]:
 
             # Create obstacle map for direction prediction
             obs_data = create_obs_map(obs, self.patch_size, self.map_size)

@@ -38,12 +38,9 @@ class NaviFormer(nn.Module):
         assert embed_dim % num_heads == 0, f"Embedding dimension should be dividable by number of heads, " \
                                            f"found embed_dim={embed_dim} and num_heads={num_heads}"
 
-        # Problem parameters
-        self.num_obs = num_obs                           # (Minimum, Maximum) number of obstacles
-        self.agent_id = 0                                # Agent ID (for decentralized multiagent problem)
-
         # Dimensions
         self.embed_dim = embed_dim                       # Dimension of embeddings
+        self.num_obs = num_obs                           # (Minimum, Maximum) number of obstacles
 
         # Encoder parameters
         self.combined_mha = combined_mha                 # Use combined/standard MHA encoder
