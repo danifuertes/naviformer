@@ -74,11 +74,13 @@ class NeuralAStar:
     def argmax2d(x):
         return (x == torch.max(x)).nonzero()[0]
     
-    @staticmethod
-    def find_next_max_adjacent(map2d, coord):
+    def find_next_max_adjacent(self, map2d, coord):
         
         # Extract coordinates
         y, x = coord
+        
+        # Set current position to zero in the map
+        map2d[y, x] = 0
         
         # Get adjacent positions including diagonals
         adjacent_positions = [
@@ -92,11 +94,11 @@ class NeuralAStar:
         
         # Get values of adjacent positions
         adjacent_values = [map2d[i, j] for i, j in adjacent_positions]
+        assert torch.tensor(adjacent_values, device=self.device).sum() == 1
         
         # Find maximum value
         max_value = torch.max(torch.tensor(adjacent_values))
         
         # Find positions with maximum value
         max_positions = [pos for pos, val in zip(adjacent_positions, adjacent_values) if val == max_value][0]
-        map2d[max_positions[0], max_positions[1]] = 0
         return max_positions, map2d

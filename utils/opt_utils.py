@@ -20,7 +20,7 @@ def global_vars() -> dict:
         'DECODE_STRATEGY': ['greedy', 'sample'],
         'BASELINES': ['rollout', 'critic', 'exponential', None],
         'ROUTE_PLANNERS': ['ga', 'ortools'],
-        'PATH_PLANNERS': ['a_star', 'd_star', 'neural_a_star']
+        'PATH_PLANNERS': ['a_star', 'd_star', 'na_star']
     }
 
 

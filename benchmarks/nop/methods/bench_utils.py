@@ -13,7 +13,7 @@ from multiprocessing.dummy import Pool as ThreadPool
 from .a_star import AStar
 from .d_star import DStar
 from .d_star_lite import DStarLite
-from .neural_a_star import NeuralAStar
+from .na_star import NeuralAStar
 from .ortools import solve_op_ortools
 from .genetic import solve_op_genetic
 from utils import save_dataset, load_dataset
@@ -135,20 +135,21 @@ def path_planning(obs: np.ndarray, method: str = 'a_star', scale: int = 100, mar
 
     # A*
     if method == 'a_star':
-        grid_size, robot_radius = 2, 2
-        planner = AStar(obs, margin=margin, scale=scale, resolution=grid_size, rr=robot_radius)
+        # grid_size, robot_radius = 2, 2
+        # planner = AStar(obs, margin=margin, scale=scale, resolution=grid_size, rr=robot_radius)
+        planner = AStar(obs, scale=scale, grid_size=(scale, scale))
 
     # D*
     elif method == 'd_star':
         planner = DStar(obs, margin=margin, scale=scale)
         
     # Neural A*
-    elif method == 'neural_a_star':
+    elif method == 'na_star':
         planner = NeuralAStar(obs, scale=scale, grid_size=(scale, scale))
 
     # D* Lite
     else:
-        assert method == 'd_star_lite', 'Path planner not in list: [a_star, d_lite, neural_a_star, d_star_lite]'
+        assert method == 'd_star_lite', 'Path planner not in list: [a_star, d_lite, na_star, d_star_lite]'
         planner = DStarLite(obs, [0, 0], [0, 0])
     return planner
 
@@ -295,7 +296,7 @@ def solve_nop(directory: str | None,
 
             # Check if finished
             bumped = np.any([np.any(np.linalg.norm(np.array(ob[:2]) - steps, axis=1) < ob[2]) for ob in obs]) or error
-            success = max_length >= np.linalg.norm(depot_end - start) and not bumped and success_path  # TODO: if time limit surpassed, goal=end depot
+            success = not bumped and success_path  # max_length >= np.linalg.norm(depot_end - start) and
             finished = on_depot or not success
 
         # Measure clock time

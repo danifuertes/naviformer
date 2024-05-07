@@ -213,8 +213,8 @@ def plot_path(
     # Plot nodes (purple circles), initial depot (blue circle), end depot (red circle) and obstacles (black circles)
     if scenario:
         plt.scatter(loc[..., 0], loc[..., 1], c='mediumpurple', s=90)
-        plt.scatter(*depot_ini, c='c', s=90)
-        plt.scatter(*depot_end, c='r', s=90)
+        plt.scatter(*depot_ini, c='tab:cyan', s=90)
+        plt.scatter(*depot_end, c='tab:orange', s=90)
         if 'obs' in batch:
             for obs in batch['obs']:
                 ax.add_patch(plt.Circle(obs[:2], obs[2], color='k'))
@@ -254,6 +254,7 @@ def plot_path(
         dist2end = np.linalg.norm(new_coord - depot_end, axis=-1)
         dist2obs = np.linalg.norm(new_coord - batch['obs'][:, :2], axis=-1)
         if (dist2end <= time_step and tour[i, 0] == end_ids) or np.any(dist2obs < batch['obs'][:, 2]) or d > max_length:
+            plt.scatter(*new_coord, marker='x', c='r', s=90)
             break
         cur_coord = new_coord
 

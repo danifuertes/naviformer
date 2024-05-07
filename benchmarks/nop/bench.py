@@ -30,7 +30,7 @@ def get_options() -> argparse.Namespace:
 
     # Algorithms
     parser.add_argument("--route_planner", help="Name of the route planner to evaluate: [ortools, opga]")
-    parser.add_argument("--path_planner", help="Name of the path planner to evaluate: [a_star, d_star_lite]")
+    parser.add_argument("--path_planner", help="Name of the path planner to evaluate: [a_star, d_star, na_star]")
 
     # Misc
     parser.add_argument("--cpus", type=int, help="Number of CPUs to use, defaults to all cores")

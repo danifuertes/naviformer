@@ -4,7 +4,6 @@ import numpy as np
 import torch
 
 from utils import *
-from demo.demo import demo
 from envs import load_problem
 from nets import load_model_eval
 from benchmarks import solve_nop, parse_runs
@@ -50,12 +49,6 @@ def get_options(args: list = None) -> argparse.Namespace:
     parser.add_argument('--num_agents', type=int, default=1, help="Number of agents")
     parser.add_argument('--num_dirs', type=int, default=4, help="Number of directions the agent can choose to move")
 
-    # RoboMaster demo
-    parser.add_argument('--demo', type=str2bool, default=False, help="True to perform demo with RoboMasters")
-    parser.add_argument('--robots', type=str, nargs='+', default=['teseo', 'perseo'], help="Indicate which robots will "
-                        "be used. Go to utils/demo_utils.py and change the SERIAL_NUMBERS dictionary to add the serial "
-                        "numbers of your robots and give them a fancy name")
-
     # Misc
     parser.add_argument('--use_cuda', type=str2bool, default=True, help="True to use CUDA")
     parser.add_argument('--dataset', type=str, default='', help='Path to load dataset. If more than one scenario in,'
@@ -98,7 +91,7 @@ def compute_benchmark(opts: argparse.Namespace, batch: torch.Tensor | dict, **kw
     path_name = {
         'a_star': 'A*',
         'd_star': 'D*',
-        'neural_a_star': 'NA*',
+        'na_star': 'NA*',
     }.get(path_planner)
     model_name = route_name + '-' + path_name
 
@@ -224,11 +217,7 @@ def main(opts: argparse.Namespace) -> None:
     if opts.num_agents == 1:
         actions = [actions]
     plot(actions, batch, env.name, model_name, data_dist=opts.data_dist, success=success, num_dirs=opts.num_dirs)
-
-    # RoboMaster demo
-    if opts.demo:
-        demo(opts.robots, actions, batch['depot_ini'])
-
+    
 
 if __name__ == "__main__":
     main(get_options())
