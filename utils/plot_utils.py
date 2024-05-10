@@ -253,8 +253,10 @@ def plot_path(
         plt.plot([cur_coord[0], new_coord[0]], [cur_coord[1], new_coord[1]], c=c)
         dist2end = np.linalg.norm(new_coord - depot_end, axis=-1)
         dist2obs = np.linalg.norm(new_coord - batch['obs'][:, :2], axis=-1)
-        if (dist2end <= time_step and tour[i, 0] == end_ids) or np.any(dist2obs < batch['obs'][:, 2]) or d > max_length:
-            plt.scatter(*new_coord, marker='x', c='r', s=90)
+        not_success = np.any(dist2obs < batch['obs'][:, 2]) or d > max_length
+        if (dist2end <= time_step and tour[i, 0] == end_ids) or not_success:
+            if not_success:
+                plt.scatter(*new_coord, marker='x', c='r', s=90)
             break
         cur_coord = new_coord
 

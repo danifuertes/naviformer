@@ -78,7 +78,6 @@ class OpState(NamedTuple):
     # State
     visited: torch.Tensor           # Keeps track of nodes that have been visited
     prev_node: torch.Tensor         # Previous node selected to visit
-    prev_action: torch.Tensor       # Previous action taken
     position: torch.Tensor          # Current agent position
     length: torch.Tensor            # Time/distance of the travel
 
@@ -114,7 +113,6 @@ class OpState(NamedTuple):
             obs_bumped=self.obs_bumped[key],
             visited=self.visited[key],
             prev_node=self.prev_node[key],
-            prev_action=self.prev_action[key],
             position=self.position[key],
             length=self.length[key],
             is_traveling=self.is_traveling[key],
@@ -175,9 +173,6 @@ class OpState(NamedTuple):
         # Previously visited node
         prev_node = torch.zeros(batch_size, dtype=torch.long, device=device)
 
-        # Previous action
-        prev_action = torch.zeros(batch_size, dtype=torch.long, device=device)
-
         # Traveled length
         length = torch.zeros(batch_size, device=device)
 
@@ -197,7 +192,6 @@ class OpState(NamedTuple):
             obs=obs,
             visited=visited,
             prev_node=prev_node,
-            prev_action=prev_action,
             position=depot_ini,
             length=length,
             num_dirs=num_dirs,
@@ -208,26 +202,27 @@ class OpState(NamedTuple):
             done=done
         )
 
-    def step(self, action: torch.Tensor) -> Any:
+    def step(self, action: torch.Tensor, path: torch.Tensor = None, *args, **kwargs) -> Any:
         """
         Take a step in the environment.
 
         Args:
             action (torch.Tensor): Batch of actions to take.
+            path (torch.Tensor): Batch of paths between previous and new chosen node.
 
         Returns:
             NopState: Updated state.
         """
-
-        # Action = (Next node to visit, Next action/direction to follow)
-        next_node_idx = action[..., 0]
-        next_action = action[..., 1]
+        next_node_idx = action
 
         # Update next position
         new_position = self.get_regions_by_index(next_node_idx)
 
         # Update length of route
-        length = self.length + (new_position - self.position).norm(p=2, dim=-1)  # self.length + self.time_step
+        if path is None:
+            length = self.length + (new_position - self.position).norm(p=2, dim=-1)  # self.length + self.time_step
+        else:
+            length = self.length + self.get_path_length(path)
 
         # Mask visited regions
         visited = self.visited.scatter(-1, next_node_idx[..., None], 1)
@@ -240,7 +235,6 @@ class OpState(NamedTuple):
             i=self.i+1,
             visited=visited,
             prev_node=next_node_idx,
-            prev_action=next_action,
             position=new_position,
             length=length,
             reward=-reward,   # Negative reward since torch always minimizes
@@ -263,10 +257,7 @@ class OpState(NamedTuple):
                     torch.eq(self.prev_node, self.get_end_idx()),  # Going to end depot
                     (self.position - self.get_depot_end()).norm(p=2, dim=-1) <= self.time_step  # On end depot
                 ),
-                torch.logical_or(
-                    self.obs_bumped,  # No bumping
-                    self.get_remaining_length() < 0  # Still on time
-                )
+                self.get_remaining_length() < 0  # No more time
             )
         )
 
@@ -279,10 +270,7 @@ class OpState(NamedTuple):
         """
         return torch.logical_and(
             self.finished(),  # Finished
-            ~torch.logical_or(
-                self.obs_bumped,  # No bumping
-                self.get_remaining_length() < 0  # Still on time
-            )
+            self.get_remaining_length() >= 0  # Still on time
         )
 
     def get_remaining_length(self) -> torch.Tensor:
@@ -293,6 +281,24 @@ class OpState(NamedTuple):
             torch.Tensor: Remaining length for each element of the batch.
         """
         return self.max_length - self.length
+        
+    @staticmethod
+    def get_path_length(path):
+        # Compute mask for dummy values
+        mask = (path != -1).all(dim=-1)
+
+        # Compute differences between consecutive coordinates
+        diffs = path[:, 1:] - path[:, :-1]
+
+        # Compute distances between consecutive coordinates
+        distances = torch.linalg.norm(diffs, dim=-1)
+
+        # Apply mask to distances
+        distances_masked = distances * mask[:, :-1]
+
+        # Compute path lengths by summing distances along the sequence
+        path_lengths = distances_masked.sum(dim=-1)
+        return path_lengths
 
     def get_dist2obs(self, position: torch.Tensor = None) -> torch.Tensor:
         """
@@ -328,7 +334,6 @@ class OpState(NamedTuple):
         Returns:
             torch.Tensor: Mask for nodes.
         """
-        batch_ids = torch.arange(self.get_batch_size(), dtype=torch.int64, device=self.device)
         end_idx = self.get_end_idx()
 
         # Define mask (with visited nodes)
@@ -338,12 +343,7 @@ class OpState(NamedTuple):
         # Block initial depot
         mask[..., 0] = 1
 
-        # While traveling, do not change agent's mind
-        mask[self.is_traveling] = 1  # Comment this line to allow changing agent's mind (careful with lengths then)
-        mask[batch_ids[self.is_traveling], self.prev_node[self.is_traveling]] = 0
-
         # End depot can always be visited, but once visited, cannot leave the place
-        mask[~self.is_traveling, end_idx] = 0
         finished = self.finished()
         mask[finished] = 1
         mask[finished, end_idx] = 0  # Always allow visiting end depot to prevent running out of nodes to choose

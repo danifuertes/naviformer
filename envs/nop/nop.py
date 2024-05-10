@@ -216,7 +216,7 @@ class NopState(NamedTuple):
             done=done
         )
 
-    def step(self, action: torch.Tensor) -> Any:
+    def step(self, action: torch.Tensor, *args, **kwargs) -> Any:
         """
         Take a step in the environment.
 

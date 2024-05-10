@@ -3,7 +3,7 @@ import math
 import torch
 from torch import nn
 
-from .modules import *
+from ..modules import *
 
 
 class NaviFormer2Step(nn.Module):
@@ -37,6 +37,8 @@ class NaviFormer2Step(nn.Module):
         # Dimensions
         self.embed_dim = embed_dim                       # Dimension of embeddings
         self.num_obs = num_obs                           # (Minimum, Maximum) number of obstacles
+        self.patch_size = 16                             # Size of local maps
+        self.map_size = 64                               # Size of global map
         
         # Encoder parameters
         self.combined_mha = combined_mha                 # Use combined/standard MHA encoder

@@ -3,7 +3,7 @@ import math
 import torch
 from torch import nn
 
-from .modules import *
+from ..modules import *
 
 
 class NaviFormer(nn.Module):

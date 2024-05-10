@@ -303,6 +303,8 @@ def generate_obstacles(min_obs: int = 0, max_obs: int = 5, r_min: float = .05, r
         value=-1
     )
     obstacles[..., 2][obstacles[..., 2] == -1] = 0
+    # obstacles[MAX_OBS:, :2] = -1
+    # obstacles[MAX_OBS:, 2] = 0
     return obstacles
 
 

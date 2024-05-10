@@ -1,5 +1,6 @@
 from typing import Any
 
+from .op.op import OpEnv, OpDataset
 from .nop.nop import NopEnv, NopDataset
 from .nop.nop_utils import print_nop_results
 
@@ -15,6 +16,7 @@ def load_problem(name: str) -> Any:
         class: Problem class.
     """
     problem = {
+        'op': OpEnv,
         'nop': NopEnv,
     }.get(name, None)
     assert problem is not None, f"Currently unsupported problem: {name}!"
@@ -32,6 +34,7 @@ def load_dataset(name: str) -> Any:
         class: Dataset class.
     """
     dataset = {
+        'op': OpDataset,
         'nop': NopDataset,
     }.get(name, None)
     assert dataset is not None, f"Currently unsupported dataset: {name}!"

@@ -2,7 +2,7 @@ import math
 import torch
 from torch import nn
 
-from .modules import *
+from ..modules import *
 
 
 class Fixed(NamedTuple):
@@ -96,8 +96,8 @@ class Attention(nn.Module):
         return e, logits
 
 
-class GPN(nn.Module):
-    """Graph Pointer network"""
+class GPN2Step(nn.Module):
+    """Graph Pointer network in a 2-step way"""
 
     def __init__(self,
                  embed_dim: int = 128,
@@ -108,7 +108,7 @@ class GPN(nn.Module):
                  mask_logits=True,
                  **kwargs) -> None:
         """
-        Initialize Pointer network model.
+        Initialize Pointer network 2-step model.
 
         Args:
             embed_dim (int): Dimension of embeddings.
@@ -117,13 +117,15 @@ class GPN(nn.Module):
             tanh_clipping (float): Clip tanh values.
             normalization (str): Type of normalization.
         """
-        super(GPN, self).__init__()
+        super(GPN2Step, self).__init__()
         assert embed_dim % num_heads == 0, f"Embedding dimension should be dividable by number of heads, " \
                                            f"found embed_dim={embed_dim} and num_heads={num_heads}"
 
         # Dimensions
         self.embed_dim = embed_dim                       # Dimension of embeddings
         self.num_obs = num_obs                           # (Minimum, Maximum) number of obstacles
+        self.patch_size = 16                             # Size of local maps
+        self.map_size = 64                               # Size of global map
 
         # Decoder parameters
         self.temp = 1.0                                  # SoftMax temperature parameter
@@ -360,8 +362,8 @@ class GPN(nn.Module):
         dist2regions = state.get_dist2regions(state.position)
         
         # Get max length nd substract the distance from each node to the depot. Then, normalize it by diving the result by max length
-        max_length = state.get_remaining_length()[..., None] - dist2regions
-        max_length = max_length[..., None] / state.get_remaining_length().tile(num_regions).reshape(-1, num_regions, 1)
+        max_length = (state.get_remaining_length()[..., None] - dist2regions)[..., None]
+        max_length = max_length / state.max_length[:, None, None].expand(*max_length.shape)
 
         # Concatenate spatial info (loc), prize info (prize) and temporal info (max_length)
         data = torch.cat((regions, prizes, max_length), dim=-1)

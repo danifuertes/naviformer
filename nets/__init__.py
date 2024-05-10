@@ -2,12 +2,30 @@ import os
 import argparse
 from typing import Tuple
 
+from .op import *
+from .nop import *
 from .modules.net_utils import *
-from .naviformer import NaviFormer
-from .naviformer2step import NaviFormer2Step
-from .pn import PN
-from .gpn import GPN
 from utils import load_cpu, load_args, load_file, load_file_or_dir, get_inner_model
+
+
+MODELS = {
+    'nop': {
+        'naviformer': NaviFormer,
+        'pn': PN,
+        'gpn': GPN,
+    },
+    'op': {
+        'naviformer2step': NaviFormer2Step,
+        'naviformer_na_star': NaviFormerNAStar,
+    }
+}
+FANCY_NAME = {
+    'naviformer': 'NaviFormer',
+    'naviformer2step': 'NaviFormer2Step',
+    'naviformer_na_star': 'NaviFormerNAStar',
+    'pn': 'PN',
+    'gpn': 'GPN',
+}
 
 
 def load_model_train(opts: argparse.Namespace, ensure_instance: str = '', two_step: str = '') -> \
@@ -25,13 +43,8 @@ def load_model_train(opts: argparse.Namespace, ensure_instance: str = '', two_st
     """
 
     # Choose model
-    model_class = {
-        'naviformer': NaviFormer,
-        'naviformer_2step': NaviFormer2Step,
-        'pn': PN,
-        'gpn': GPN,
-    }.get(opts.model, None)
-    assert model_class is not None, "Unknown model: {}".format(model_class)
+    model_class = MODELS.get(opts.problem, '').get(opts.model, None)
+    assert model_class is not None, f"Unknown model '{opts.model}' for given problem '{opts.problem}'"
 
     # Load model
     model = model_class(
@@ -106,13 +119,9 @@ def load_model_eval(path: str,
     args = load_args(os.path.join(path, 'args.json'))
 
     # Load model
-    model_class = {
-        'naviformer': NaviFormer,
-        'naviformer_2step': NaviFormer2Step,
-        'pn': PN,
-        'gpn': GPN,
-    }.get(args.get('model', ''), None)
-    assert model_class is not None, "Unknown model: {}".format(model_class)
+    args_model, args_problem = args.get('model', ''), args.get('problem', '')
+    model_class = MODELS.get(args_model, {}).get(args_problem, None)
+    assert model_class is not None, f"Unknown model '{args_model}' for given problem '{args_problem}'"
     kwargs = {} if kwargs is None else kwargs
     model = model_class(
         embed_dim=args.get('embed_dim', 128),
@@ -128,12 +137,7 @@ def load_model_eval(path: str,
     )
 
     # Get fancy name
-    args['fancy_name'] = {
-        'naviformer': 'NaviFormer',
-        'naviformer_2step': 'NaviFormer2Step',
-        'pn': 'PN',
-        'gpn': 'GPN',
-    }.get(args.get('model', ''), 'NoName')
+    args['fancy_name'] = FANCY_NAME.get(args.get('model', ''), 'NoName')
 
     # Ensure model is an instance of the correct class
     if ensure_instance != '':

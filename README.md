@@ -27,15 +27,13 @@ pip install -r requirements.txt
 
 First, it is necessary to create test and validation sets:
 ```bash
-python3 -m utils.make_data --name test --seed 1234 --num_nodes 20 50 100 --num_samples 10000 --data_dist const --max_length 2 3 4 --num_depots 2 --max_obs 5 --max_nodes 0
-python3 -m utils.make_data --name val --seed 4321 --num_nodes 20 50 100 --num_samples 10000 --data_dist const --max_length 2 3 4 --num_depots 2 --max_obs 5 --max_nodes 0
+python3 -m utils.make_data --name test --seed 1234 --num_samples 10000 --data_dist const --num_depots 2 --num_obs 5 20 --max_length 2 3 4
+python3 -m utils.make_data --name val --seed 4321 --num_samples 10000 --data_dist const --num_depots 2 --num_obs 5 20 --max_length 2 3 4
 ```
 
 To train the network (`naviformer`) use:
 ```bash
-python3 train.py --model naviformer --val_dataset data/nop/2depots/const/20/val_seed4321_5obs.pkl --num_nodes 20 --data_dist const --num_depots 2 --max_length 2 --max_obs 5 --max_nodes 0 --combined_mha T --baseline critic
-python3 train.py --model naviformer --val_dataset data/nop/2depots/const/50/val_seed4321_5obs.pkl --num_nodes 50 --data_dist const --num_depots 2 --max_length 3 --max_obs 5 --max_nodes 0 --combined_mha T --baseline critic
-python3 train.py --model naviformer --val_dataset data/nop/2depots/const/100/val_seed4321_5obs.pkl --num_nodes 100 --data_dist const --num_depots 2 --max_length 4 --max_obs 5 --max_nodes 0 --combined_mha T --baseline critic
+python3 train.py --model naviformer --val_dataset data/nop/2depots/const/50/val_seed4321_T3_5-20obs.pkl --num_nodes 50 --data_dist const --num_depots 2 --max_length 3 --num_obs 5 20 --max_nodes 0 --combined_mha T --baseline critic --num_dirs 8
 ```
 
 and change the environment conditions (number of nodes, max length, reward distribution...) at your convenience.
