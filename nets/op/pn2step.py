@@ -177,7 +177,7 @@ class PN2Step(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, batch: dict | torch.Tensor, env: Any, eval: bool = True) -> \
+    def forward(self, batch: dict | torch.Tensor, env: Any, test: bool = True) -> \
             Tuple[Any, Any, torch.Tensor, torch.Tensor] | Tuple[Any, Any]:
         """
         Forward pass of the model.
@@ -185,10 +185,10 @@ class PN2Step(nn.Module):
         Args:
             batch (dict or torch.Tensor): Batch data.
             env (Any): Environment data.
-            eval (bool): Indicates if model is in eval mode, hence returning the actions and success
+            test (bool): Indicates if model is in test mode, hence returning the actions and success
 
         Returns:
-            tuple: Total reward, total log probability, actions (if eval=True), and success (if eval=True).
+            tuple: Total reward, total log probability, actions (if test=True), and success (if test=True).
         """
 
         # Initialize state and other info
@@ -222,7 +222,7 @@ class PN2Step(nn.Module):
         success = state.check_success()
 
         # Return reward and log probabilities
-        if eval:
+        if test:
             return total_reward, total_log_prob, torch.stack(actions, dim=1), success
         return total_reward, total_log_prob
 
