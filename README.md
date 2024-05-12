@@ -21,6 +21,10 @@ reinforcement learning.
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+cd benchmarks/nop/methods
+git clone --recursive https://github.com/omron-sinicx/neural-astar
+pip install neural-astar/.
+cd ../../..
 ```
 
 ## Usage

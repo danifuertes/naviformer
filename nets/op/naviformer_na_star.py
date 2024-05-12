@@ -13,7 +13,6 @@ class NaviFormerNAStar(nn.Module):
 
     def __init__(self,
                  embed_dim: int = 128,
-                 num_dirs: int = 4,
                  combined_mha: bool = True,
                  two_step: str = '',
                  num_obs: tuple = (0, 0),
