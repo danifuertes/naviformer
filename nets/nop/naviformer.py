@@ -13,7 +13,7 @@ class NaviFormer(nn.Module):
                  embed_dim: int = 128,
                  num_dirs: int = 4,
                  combined_mha: bool = True,
-                 two_step: str = '',
+                 two_step: any = None,
                  num_obs: tuple = (0, 0),
                  num_heads: int = 8,
                  num_blocks: int = 2,
@@ -27,7 +27,7 @@ class NaviFormer(nn.Module):
             embed_dim (int): Dimension of embeddings.
             num_dirs (int): Number of the directions the agent can choose to move.
             combined_mha (bool): Whether to use combined/standard MHA encoder.
-            two_step (str): Pre-trained route planner for 2-step navigation planner.
+            two_step (any): Pre-trained route planner for 2-step navigation planner.
             num_obs (tuple): (Minimum, Maximum) number of obstacles.
             num_heads (int): Number of heads for MHA layers.
             num_blocks (int): Number of encoding blocks.
@@ -59,7 +59,8 @@ class NaviFormer(nn.Module):
         node_dim = 3
 
         # Pre-trained (2-step) Transformer route planner
-        if os.path.isdir(two_step) or os.path.isfile(two_step):
+        if two_step is not None:
+            self.base_route_model = two_step
             self.base_route_model.set_decode_type("greedy", temp=self.temp)
             print(f"Loaded base route planner model {two_step} for 2-step NaviFormer")
             print('Freezing base route planner model layers for 2-step NaviFormer')

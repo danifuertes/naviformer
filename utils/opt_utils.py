@@ -193,9 +193,9 @@ def check_train_options(opts: argparse.Namespace) -> None:
     # assert opts.epoch_size % opts.batch_size == 0, f"epoch_size must be multiple of batch_size, found {opts.epoch_size}"
     assert opts.combined_mha and opts.num_obs[1] or not opts.combined_mha, \
         f"If combined_mha=True, then it is required that num_obs[1] > 0"
-    if os.path.isdir(opts.two_step) or opts.two_step.endswith('.pkl') or opts.two_step_train:
-        assert opts.two_step_train and opts.problem == 'op', \
-            "To train a route planner for future use of 2-step model, try with option --problem op"
+    # if os.path.isdir(opts.two_step) or opts.two_step.endswith('.pkl') or opts.two_step_train:
+    if opts.model.endswith('2step'):
+        assert opts.problem == 'op', "To train a route planner for future use of 2-step model, try with option --problem op"
     else:
         assert opts.unfreeze_epoch < 0, \
             "Positive unfreeze_epoch only allowed for 2-step approach. Try with --to_step or set unfreeze_epoch to -1"

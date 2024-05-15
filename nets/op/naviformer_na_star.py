@@ -14,7 +14,7 @@ class NaviFormerNAStar(nn.Module):
     def __init__(self,
                  embed_dim: int = 128,
                  combined_mha: bool = True,
-                 two_step: str = '',
+                 two_step: any = None,
                  num_obs: tuple = (0, 0),
                  num_heads: int = 8,
                  num_blocks: int = 2,
@@ -28,7 +28,7 @@ class NaviFormerNAStar(nn.Module):
             embed_dim (int): Dimension of embeddings.
             num_dirs (int): Number of the directions the agent can choose to move.
             combined_mha (bool): Whether to use combined/standard MHA encoder.
-            two_step (str): Pre-trained route planner for 2-step navigation planner.
+            two_step (any): Pre-trained route planner for 2-step navigation planner.
             num_obs (tuple): (Minimum, Maximum) number of obstacles.
             num_heads (int): Number of heads for MHA layers.
             num_blocks (int): Number of encoding blocks.
@@ -63,11 +63,12 @@ class NaviFormerNAStar(nn.Module):
         node_dim = 3
 
         # Pre-trained (2-step) Transformer route planner
-        if os.path.isdir(two_step) or os.path.isfile(two_step):
+        if two_step is not None:
+            self.base_route_model = two_step
             self.base_route_model.set_decode_type("greedy", temp=self.temp)
             print(f"Loaded base route planner model {two_step} for 2-step NaviFormer")
             print('Freezing base route planner model layers for 2-step NaviFormer')
-            for _, p in self.base_route_model.named_parameters():
+            for name, p in self.base_route_model.named_parameters():
                 p.requires_grad = False
             self.two_step = True
         else:
@@ -159,6 +160,11 @@ class NaviFormerNAStar(nn.Module):
             # Get reward and update state based on the action predicted
             state = state.step(action, path=path[..., 1:])
             reward, done = state.reward, state.done
+            
+            # Combine action (next node) with path
+            num_steps = path.shape[1]
+            action = action.reshape(-1, 1, 1).expand(action.shape[0], num_steps, 1)
+            action = torch.cat((action, path[..., 1:]), dim=-1)
 
             # Update info
             actions = actions + (action,)
@@ -170,7 +176,7 @@ class NaviFormerNAStar(nn.Module):
 
         # Return reward and log probabilities
         if test:
-            return total_reward, total_log_prob, (torch.stack(actions, dim=1), path), success
+            return total_reward, total_log_prob, torch.cat(actions, dim=1), success
         return total_reward, total_log_prob
 
     def step(self, state: Any) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -580,8 +586,8 @@ class NaviFormerNAStar(nn.Module):
         
         # Gather coordinates of maximum values
         next_coords = torch.stack((
-            col_idx.gather(1, dirs[:, None]).squeeze() / height,
-            row_idx.gather(1, dirs[:, None]).squeeze() / width,
+            col_idx.gather(1, dirs[:, None])[:, 0] / height,
+            row_idx.gather(1, dirs[:, None])[:, 0] / width,
         ), dim=-1)
         return next_coords, dirs, maps
     

@@ -59,7 +59,6 @@ def get_options(args: list = None) -> argparse.Namespace:
     parser.add_argument('--tanh_clipping', type=float, default=10., help="Clip the parameters to within +- this value"
                         "using tanh. Set to 0 to not perform any clipping.")
     parser.add_argument('--two_step', type=str, default='', help=f"Path to base model for baseline 2-step approach")
-    parser.add_argument('--two_step_train', type=str2bool, default=False, help=f"Train 2-step route planning model")
     parser.add_argument('--unfreeze_epoch', type=int, default=-1,
                         help=f"Epoch to unfreeze 2-step route planning model. Use -1 to keep frozen")
 
@@ -105,14 +104,6 @@ def get_options(args: list = None) -> argparse.Namespace:
 
     # Check options are ok
     check_train_options(opts)
-
-    # Two-step option
-    if os.path.isdir(opts.two_step) or opts.two_step.endswith('.pkl') or opts.two_step_train:
-        opts.model = opts.model + '_2step'
-    else:
-        if opts.two_step != '':
-            print(f"Baseline 2-step approach model {opts.two_step} not found. Using standard 1-step approach")
-            opts.two_step = ''
 
     # Use CUDA or CPU
     opts.use_cuda = torch.cuda.is_available() and opts.use_cuda

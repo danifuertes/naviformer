@@ -32,14 +32,12 @@ FANCY_NAME = {
 }
 
 
-def load_model_train(opts: argparse.Namespace, ensure_instance: str = '', two_step: str = '') -> \
-        Tuple[torch.nn.Module, dict, int]:
+def load_model_train(opts: argparse.Namespace, two_step: str = '') -> Tuple[torch.nn.Module, dict, int]:
     """
     Loads a model for training based on specified options.
 
     Args:
         opts (argparse.Namespace): Parsed command line arguments.
-        ensure_instance (str, optional): The expected class of the loaded model. Defaults to ''.
         two_step (str, optional): Path to a pretrained 2-step route planner. Defaults to ''.
 
     Returns:
@@ -50,6 +48,17 @@ def load_model_train(opts: argparse.Namespace, ensure_instance: str = '', two_st
     model_class = MODELS.get(opts.problem, '').get(opts.model, None)
     assert model_class is not None, f"Unknown model '{opts.model}' for given problem '{opts.problem}'"
 
+    # Pre-trained (2-step) Transformer route planner
+    if os.path.isdir(two_step) or os.path.isfile(two_step):
+        two_step, _ = load_model_eval(two_step, kwargs={
+            'num_depots': opts.num_depots,
+            'num_agents': opts.num_agents,
+            'info_th': opts.info_th,
+            'num_obs': opts.num_obs
+        }, ensure_instance='naviformer_2step')
+    else:
+        two_step = None
+
     # Load model
     model = model_class(
         embed_dim=opts.embed_dim,
@@ -58,23 +67,9 @@ def load_model_train(opts: argparse.Namespace, ensure_instance: str = '', two_st
         tanh_clipping=opts.tanh_clipping,
         num_obs=opts.num_obs,
         combined_mha=opts.combined_mha,
-        two_step=opts.two_step,
+        two_step=two_step,
         num_dirs=opts.num_dirs,
     ).to(opts.device)
-
-    # Ensure model is an instance of the correct class
-    if ensure_instance != '':
-        assert isinstance(model, model_class[ensure_instance]), \
-            f"Loaded model should be instance of {ensure_instance} ({model_class['ensure_instance']}), got: {model})"
-
-    # Pre-trained (2-step) Transformer route planner
-    if os.path.isdir(two_step) or os.path.isfile(two_step):
-        model.base_route_model, _ = load_model_eval(two_step, kwargs={
-            'num_depots': opts.num_depots,
-            'num_agents': opts.num_agents,
-            'info_th': opts.info_th,
-            'num_obs': opts.num_obs
-        }, ensure_instance='naviformer_2step')
 
     # Multi-GPU
     if opts.use_cuda and torch.cuda.device_count() > 1:
@@ -134,7 +129,7 @@ def load_model_eval(path: str,
         normalization=args.get('normalization', 'batch'),
         tanh_clipping=args.get('tanh_clipping', 10.),
         combined_mha=args.get('combined_mha', False),
-        two_step=args.get('two_step', ''),
+        # two_step=args.get('two_step', None),
         num_obs=args.get('num_obs', (0, 0)),
         num_dirs=args.get('num_dirs', 4),
         **kwargs
