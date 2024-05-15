@@ -35,6 +35,7 @@ def load_baseline(opts: argparse.Namespace, model: torch.nn.Module, problem: Any
                 input_dim1=3,
                 input_dim2=3 if opts.num_obs[1] else None,
                 embed_dim=opts.embed_dim,
+                num_heads=opts.num_heads,
                 num_blocks=opts.num_blocks,
                 normalization=opts.normalization,
                 combined_mha=opts.combined_mha,

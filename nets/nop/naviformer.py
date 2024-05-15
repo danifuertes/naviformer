@@ -92,7 +92,7 @@ class NaviFormer(nn.Module):
         self.project_graph_mean = nn.Linear(embed_dim, embed_dim, bias=False)
 
         # Project averaged obstacle embedding (across obstacles) for state embedding
-        self.project_obs_mean = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.project_obs_mean = nn.Linear(embed_dim if combined_mha else 3, embed_dim, bias=False)
 
         # Project state embedding
         self.project_state = nn.Linear(step_context_dim, embed_dim, bias=False)
@@ -229,7 +229,7 @@ class NaviFormer(nn.Module):
         init_embed = input_embed(state, self.init_embed, self.init_embed_depot)
         init_embed = (init_embed, state.obs) if self.combined_mha else (init_embed, )
         h = self.embedder(*init_embed)
-        embeddings = (h[0], h[2]) if self.combined_mha else h[0]
+        embeddings = (h[0], h[2]) if self.combined_mha else (h[0], None)
         return embeddings
 
     def precompute(self, embeddings: torch.Tensor, obs: torch.Tensor | None = None) -> AttentionModelFixed:
@@ -248,21 +248,16 @@ class NaviFormer(nn.Module):
         if self.two_step:
             return self.base_route_model.precompute(embeddings, obs, map_info=(self.patch_size, self.map_size))
 
-        # Obstacle embeddings
-        if self.num_obs[1]:
-            graph_embedding, obs_embedding = embeddings
+        # Get graph and obs embeddinggs
+        graph_embedding, obs_embedding = embeddings
 
-            # Project averaged obstacle embedding (across obstacles) for state embedding
-            obs_embedding_mean = self.project_obs_mean(obs_embedding.mean(1))
+        # Project averaged obstacle embedding (across obstacles) for state embedding
+        obs_embedding_mean = self.project_obs_mean(obs_embedding.mean(1)) if self.combined_mha else \
+            self.project_obs_mean(obs).mean(1)
 
-            # Create obstacle map for direction prediction
-            obs_map, obs_grid = create_obs_map(obs, self.patch_size, self.map_size)
-            obs_data = (obs_embedding_mean, obs_map, obs_grid)
-
-        # No obstacles
-        else:
-            graph_embedding = embeddings
-            obs_data = (None, None, None)
+        # Create obstacle map for direction prediction
+        obs_map, obs_grid = create_obs_map(obs, self.patch_size, self.map_size)
+        obs_data = (obs_embedding_mean, obs_map, obs_grid)
 
         # Project averaged graph embedding (across nodes) for state embedding
         graph_embedding_mean = self.project_graph_mean(graph_embedding.mean(1))

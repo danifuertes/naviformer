@@ -214,7 +214,7 @@ def plot_path(
     if scenario:
         plt.scatter(loc[..., 0], loc[..., 1], c='mediumpurple', s=90)
         plt.scatter(*depot_ini, c='tab:cyan', s=90)
-        plt.scatter(*depot_end, c='tab:orange', s=90)
+        plt.scatter(*depot_end, c='tab:red', s=90)
         if 'obs' in batch:
             for obs in batch['obs']:
                 ax.add_patch(plt.Circle(obs[:2], obs[2], color='k'))
@@ -233,9 +233,9 @@ def plot_path(
     loc = np.concatenate(([depot_ini], loc, [depot_end]), axis=0)
 
     # Plot regions numbers (indexes)
-    if scenario:
-        for i in range(loc.shape[0]):
-            plt.text(loc[i, 0], loc[i, 1], str(i))
+    # if scenario:
+    #     for i in range(loc.shape[0]):
+    #         plt.text(loc[i, 0], loc[i, 1], str(i))
 
     # Draw arrows
     c = 'g' if colors is None else colors[iteration]
@@ -270,7 +270,10 @@ def plot_path(
 
     # Show/save plot
     if save_image != '':
-        fig.savefig(save_image, dpi=150)
+        # plt.title('')
+        plt.xticks([])
+        plt.yticks([])
+        plt.savefig(save_image, dpi=300, bbox_inches='tight', pad_inches=0)
     if show:
         plt.show()
     else:

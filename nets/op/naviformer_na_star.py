@@ -511,7 +511,11 @@ class NaviFormerNAStar(nn.Module):
     
     def obs2maps(self, obs):
         batch_size, num_obs, _ = obs.shape
-        x, y = torch.meshgrid(torch.linspace(0, 1, self.map_size), torch.linspace(0, 1, self.map_size), indexing="ij")
+        x, y = torch.meshgrid(
+            torch.linspace(0, 1, self.map_size, device=obs.device),
+            torch.linspace(0, 1, self.map_size, device=obs.device),
+            indexing="ij"
+        )
         xy = torch.stack((x, y), dim=-1).expand([batch_size, num_obs, self.map_size, self.map_size, 2])
 
         # Calculate distance from each point of the meshgrid to each obstacle center

@@ -124,7 +124,7 @@ def load_model_eval(path: str,
 
     # Load model
     args_model, args_problem = args.get('model', ''), args.get('problem', '')
-    model_class = MODELS.get(args_model, {}).get(args_problem, None)
+    model_class = MODELS.get(args_problem, {}).get(args_model, None)
     assert model_class is not None, f"Unknown model '{args_model}' for given problem '{args_problem}'"
     kwargs = {} if kwargs is None else kwargs
     model = model_class(

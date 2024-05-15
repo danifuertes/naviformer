@@ -365,7 +365,7 @@ class MHAEncoder(nn.Module):
 
         # Dimension of initial embedding of each input (embedding is only applied at the beginning of the 1st block)
         node_dim1 = [None if i > 0 else node_dim1 for i in range(num_blocks)]
-        node_dim2 = [None if i > 0 else node_dim2 for i in range(num_blocks)]
+        node_dim2 = [None if i > 0 or not combined else node_dim2 for i in range(num_blocks)]
 
         # To map input to embedding space
         # self.init_embed = nn.Linear(node_dim1, embed_dim) if node_dim1 is not None else None  # Only for the 1st block

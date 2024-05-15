@@ -14,9 +14,11 @@ class Critic(nn.Module):
             input_dim1: int,
             input_dim2: int,
             embed_dim: int,
+            num_heads: int,
             num_blocks: int,
             normalization: str,
-            combined_mha=True) -> None:
+            combined_mha=True,
+            *args, **kwargs) -> None:
         """
         Initializes the Critic network.
 
@@ -24,6 +26,7 @@ class Critic(nn.Module):
             input_dim1 (torch.Tensor): The input dimension for input 1.
             input_dim2 (torch.Tensor): The input dimension for input 2.
             embed_dim (int): The embedding dimension.
+            num_heads (int): Number of heads for MHA layers.
             num_blocks (int): The number of blocks in the encoder.
             normalization (str): The normalization type.
             combined_mha (bool): Whether to use combined MHA or not.
@@ -39,11 +42,12 @@ class Critic(nn.Module):
 
         # MHA Encoder
         self.encoder = MHAEncoder(
-            num_heads=8,
             embed_dim=embed_dim,
-            node_dim2=input_dim2,  # Obstacles (circles): x_center, y_center, radius
+            node_dim2=input_dim2,
+            num_heads=num_heads,
             num_blocks=num_blocks,
-            normalization=normalization
+            normalization=normalization,
+            combined=combined_mha
         )
 
         # Critic value prediction
@@ -70,7 +74,7 @@ class Critic(nn.Module):
 
         # Initial embedding
         x = input_embed(state, self.init_embed, self.embed_depot)
-        x = (x, state.obs) if self.combined_mha else (x, None)
+        x = (x, state.obs) if self.combined_mha else (x, )
 
         # Graph embedding (encoder)
         graph_embeddings = self.encoder(*x)
