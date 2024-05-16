@@ -66,7 +66,7 @@ class NaviFormerNAStar(nn.Module):
         if two_step is not None:
             self.base_route_model = two_step
             self.base_route_model.set_decode_type("greedy", temp=self.temp)
-            print(f"Loaded base route planner model {two_step} for 2-step NaviFormer")
+            print(f"Loaded base route planner model for 2-step NaviFormer")
             print('Freezing base route planner model layers for 2-step NaviFormer')
             for name, p in self.base_route_model.named_parameters():
                 p.requires_grad = False
@@ -236,7 +236,8 @@ class NaviFormerNAStar(nn.Module):
 
         # Pre-trained (2-step) Transformer encoder precompute
         if self.two_step:
-            return self.base_route_model.precompute(embeddings, obs, map_info=(self.patch_size, self.map_size))
+            self.base_route_model.fixed_data = self.base_route_model.precompute(embeddings, obs)
+            return self.base_route_model.fixed_data
 
         # Obstacle embeddings
         if self.num_obs[1]:
@@ -542,7 +543,9 @@ class NaviFormerNAStar(nn.Module):
     def map2dirs(self, predicted_map, start, goal, max_iters=300):
         pos = start.clone()
         not_done = torch.ones_like(pos[:, 0]).bool()
-        i, path = 0, []
+        i, path = 0, [
+            torch.cat((torch.zeros_like(pos[:, 0, None]).long(), start), dim=-1)
+        ]
         while not_done.any().item() and i < max_iters:
             dirs = -torch.ones_like(pos[:, 0]).long()
             p, d, predicted_map = self.max_adjacent(predicted_map, pos)
@@ -550,6 +553,9 @@ class NaviFormerNAStar(nn.Module):
             path.append(torch.cat((dirs[:, None], pos), dim=-1))
             not_done = ~self.check_coords(pos, goal)
             i += 1
+        path.append(
+            torch.cat((-torch.ones_like(pos[:, 0, None]).long(), goal), dim=-1)
+        )
         return torch.stack(path, dim=1)
         
     @ staticmethod

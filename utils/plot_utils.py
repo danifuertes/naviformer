@@ -233,9 +233,9 @@ def plot_path(
     loc = np.concatenate(([depot_ini], loc, [depot_end]), axis=0)
 
     # Plot regions numbers (indexes)
-    # if scenario:
-    #     for i in range(loc.shape[0]):
-    #         plt.text(loc[i, 0], loc[i, 1], str(i))
+    if scenario:
+        for i in range(loc.shape[0]):
+            plt.text(loc[i, 0], loc[i, 1], str(i))
 
     # Draw arrows
     c = 'g' if colors is None else colors[iteration]

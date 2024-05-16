@@ -2,6 +2,7 @@ from typing import Any
 
 from .op.op import OpEnv, OpDataset
 from .nop.nop import NopEnv, NopDataset
+from .op.op_utils import print_op_results
 from .nop.nop_utils import print_nop_results
 
 
@@ -53,6 +54,7 @@ def print_results(name: str) -> Any:
     """
     func = {
         'nop': print_nop_results,
+        'op': print_op_results,
     }.get(name, None)
     assert func is not None, f"Currently unsupported function: {name}!"
     return func

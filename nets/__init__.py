@@ -108,6 +108,12 @@ def load_model_eval(path: str,
 
     # Load arguments
     args = load_args(os.path.join(path, 'args.json'))
+    
+    # Pre-trained (2-step) Transformer route planner
+    if os.path.isdir(args['two_step']) or os.path.isfile(args['two_step']):
+        two_step, _ = load_model_eval(args['two_step'])
+    else:
+        two_step = None
 
     # Load model
     args_model, args_problem = args.get('model', ''), args.get('problem', '')
@@ -121,9 +127,9 @@ def load_model_eval(path: str,
         normalization=args.get('normalization', 'batch'),
         tanh_clipping=args.get('tanh_clipping', 10.),
         combined_mha=args.get('combined_mha', False),
-        # two_step=args.get('two_step', None),
         num_obs=args.get('num_obs', (0, 0)),
         num_dirs=args.get('num_dirs', 4),
+        two_step=two_step,
         **kwargs
     )
 

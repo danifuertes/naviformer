@@ -334,11 +334,16 @@ class OpState(NamedTuple):
         Returns:
             torch.Tensor: Mask for nodes.
         """
+        eps = 0  # 0.5 # Tolerance
         end_idx = self.get_end_idx()
+        batch_ids = torch.arange(self.get_batch_size(), dtype=torch.int64, device=self.device)
+        
+        # Check which nodes can be visited without exceeding the max_length constraint
+        exceeds_length = self.length + (self.get_regions()[batch_ids] - self.position[:, None]).norm(p=2, dim=-1) + eps > self.max_length 
 
         # Define mask (with visited nodes)
         visited_ = self.visited.to(torch.bool)
-        mask = visited_ | visited_[..., end_idx, None]
+        mask = visited_ | visited_[..., end_idx, None] | exceeds_length
 
         # Block initial depot
         mask[..., 0] = 1
@@ -346,7 +351,7 @@ class OpState(NamedTuple):
         # End depot can always be visited, but once visited, cannot leave the place
         finished = self.finished()
         mask[finished] = 1
-        mask[finished, end_idx] = 0  # Always allow visiting end depot to prevent running out of nodes to choose
+        mask[..., end_idx] = 0  # Always allow visiting end depot to prevent running out of nodes to choose
         return mask
 
     def is_depot_ini(self) -> bool:
