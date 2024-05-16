@@ -62,8 +62,8 @@ class NaviFormer(nn.Module):
         if two_step is not None:
             self.base_route_model = two_step
             self.base_route_model.set_decode_type("greedy", temp=self.temp)
-            print(f"Loaded base route planner model {two_step} for 2-step NaviFormer")
-            print('Freezing base route planner model layers for 2-step NaviFormer')
+            print("Loaded base route planner model for 2-step NaviFormer")
+            print("Freezing base route planner model layers for 2-step NaviFormer")
             for name, p in self.base_route_model.named_parameters():
                 p.requires_grad = False
             self.two_step = True
@@ -247,14 +247,15 @@ class NaviFormer(nn.Module):
 
         # Pre-trained (2-step) Transformer encoder precompute
         if self.two_step:
-            return self.base_route_model.precompute(embeddings, obs, map_info=(self.patch_size, self.map_size))
+            self.base_route_model.fixed_data = self.base_route_model.precompute(embeddings, obs)
+            return self.base_route_model.fixed_data
 
         # Get graph and obs embeddinggs
         graph_embedding, obs_embedding = embeddings
 
         # Project averaged obstacle embedding (across obstacles) for state embedding
         obs_embedding_mean = self.project_obs_mean(obs_embedding.mean(1)) if self.combined_mha else \
-            self.project_obs_mean(obs).mean(1)
+            self.project_obs_mean(obs).mean(dim=1)
 
         # Create obstacle map for direction prediction
         obs_map, obs_grid = create_obs_map(obs, self.patch_size, self.map_size)

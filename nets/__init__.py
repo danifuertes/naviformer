@@ -32,13 +32,12 @@ FANCY_NAME = {
 }
 
 
-def load_model_train(opts: argparse.Namespace, two_step: str = '') -> Tuple[torch.nn.Module, dict, int]:
+def load_model_train(opts: argparse.Namespace) -> Tuple[torch.nn.Module, dict, int]:
     """
     Loads a model for training based on specified options.
 
     Args:
         opts (argparse.Namespace): Parsed command line arguments.
-        two_step (str, optional): Path to a pretrained 2-step route planner. Defaults to ''.
 
     Returns:
         tuple: A tuple containing the loaded model, loaded data, and the first epoch.
@@ -49,13 +48,8 @@ def load_model_train(opts: argparse.Namespace, two_step: str = '') -> Tuple[torc
     assert model_class is not None, f"Unknown model '{opts.model}' for given problem '{opts.problem}'"
 
     # Pre-trained (2-step) Transformer route planner
-    if os.path.isdir(two_step) or os.path.isfile(two_step):
-        two_step, _ = load_model_eval(two_step, kwargs={
-            'num_depots': opts.num_depots,
-            'num_agents': opts.num_agents,
-            'info_th': opts.info_th,
-            'num_obs': opts.num_obs
-        }, ensure_instance='naviformer_2step')
+    if os.path.isdir(opts.two_step) or os.path.isfile(opts.two_step):
+        two_step, _ = load_model_eval(opts.two_step)
     else:
         two_step = None
 
@@ -92,7 +86,6 @@ def load_model_train(opts: argparse.Namespace, two_step: str = '') -> Tuple[torc
 
 def load_model_eval(path: str,
                     epoch: int = None,
-                    ensure_instance: str = '',
                     decode: str = 'greedy',
                     temp: float | None = None,
                     kwargs=None) -> Tuple[torch.nn.Module, dict]:
@@ -102,7 +95,6 @@ def load_model_eval(path: str,
     Args:
         path (str): Path to the model file or directory.
         epoch (int, optional): The epoch to load if `path` is a directory. Defaults to None.
-        ensure_instance (str, optional): The expected class of the loaded model. Defaults to ''.
         decode (str, optional): The decoding strategy. Defaults to 'greedy'.
         temp (float, optional): Softmax temperature for sampling. Defaults to None.
         kwargs (dict, optional): Additional keyword arguments for model initialization. Defaults to None.
@@ -137,11 +129,6 @@ def load_model_eval(path: str,
 
     # Get fancy name
     args['fancy_name'] = FANCY_NAME.get(args.get('model', ''), 'NoName')
-
-    # Ensure model is an instance of the correct class
-    if ensure_instance != '':
-        assert isinstance(model, model_class[ensure_instance]), \
-            f"Loaded model should be instance of {ensure_instance} ({model_class['ensure_instance']}), got: {model})"
 
     # Overwrite model parameters by parameters to load
     load_data = load_cpu(model_filename)
