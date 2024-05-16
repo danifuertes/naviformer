@@ -196,6 +196,3 @@ def check_train_options(opts: argparse.Namespace) -> None:
     # if os.path.isdir(opts.two_step) or opts.two_step.endswith('.pkl') or opts.two_step_train:
     if opts.model.endswith('2step'):
         assert opts.problem == 'op', "To train a route planner for future use of 2-step model, try with option --problem op"
-    else:
-        assert opts.unfreeze_epoch < 0, \
-            "Positive unfreeze_epoch only allowed for 2-step approach. Try with --to_step or set unfreeze_epoch to -1"
