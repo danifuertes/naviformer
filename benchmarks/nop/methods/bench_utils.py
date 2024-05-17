@@ -192,7 +192,7 @@ def route_planning(
     """
 
     # Genetic Algorithm
-    if method == 'genetic':
+    if method == 'ga':
         tour = solve_op_genetic(  # Index 0 = start depot | Index 1 = end depot
             [(*pos, p) for p, pos in zip([0, 0] + prize, [depot_ini, depot_end] + loc)],
             max_length - eps, return_sol=True, verbose=False
