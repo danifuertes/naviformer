@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import torch
 import argparse
 
 import numpy as np
@@ -108,7 +109,7 @@ def multiprocessing(
     # Use ThreadPool to calculate results
     pool_cls = (Pool if use_multiprocessing and num_cpus > 1 else ThreadPool)
     with pool_cls(num_cpus) as pool:
-        results = list(tqdm(pool.imap(
+        results = list(tqdm(pool.imap_unordered(
             func,
             [(directory, str(i + offset).zfill(w), problem, *args) for i, problem in enumerate(ds)]
         ), total=len(ds), mininterval=opts.progress_bar_mininterval))
@@ -119,7 +120,12 @@ def multiprocessing(
     return results, num_cpus
 
 
-def path_planning(obs: np.ndarray, method: str = 'a_star', scale: int = 100, margin: int = 5) -> Any:
+def path_planning(
+        obs: np.ndarray,
+        method: str = 'a_star',
+        scale: int = 100,
+        margin: int = 5,
+        model: Any = None) -> Any:
     """
     Perform (low-level) path planning.
 
@@ -128,6 +134,7 @@ def path_planning(obs: np.ndarray, method: str = 'a_star', scale: int = 100, mar
         method (str): Method name for path planning.
         scale (int): Scale factor for obstacle map.
         margin (int): Margin value for obstacle map.
+        model (any): Neural A* or Vanilla A* model, or None.
 
     Returns:
         Any: Path Planner.
@@ -137,7 +144,7 @@ def path_planning(obs: np.ndarray, method: str = 'a_star', scale: int = 100, mar
     if method == 'a_star':
         # grid_size, robot_radius = 2, 2
         # planner = AStar(obs, margin=margin, scale=scale, resolution=grid_size, rr=robot_radius)
-        planner = AStar(obs, scale=scale, grid_size=(scale, scale))
+        planner = AStar(obs, scale=scale, grid_size=(scale, scale), model=model)
 
     # D*
     elif method == 'd_star':
@@ -145,7 +152,7 @@ def path_planning(obs: np.ndarray, method: str = 'a_star', scale: int = 100, mar
         
     # Neural A*
     elif method == 'na_star':
-        planner = NeuralAStar(obs, scale=scale, grid_size=(scale, scale))
+        planner = NeuralAStar(obs, scale=scale, grid_size=(scale, scale), model=model)
 
     # D* Lite
     else:
@@ -220,7 +227,8 @@ def solve_nop(directory: str | None,
               route_planner: str = 'ortools',
               path_planner: str = 'a_star',
               disable_cache: bool = False,
-              sec_local_search: int = 0) -> Tuple[float, list, float, bool, int]:
+              sec_local_search: int = 0,
+              model: Any = None) -> Tuple[float, list, float, bool, int]:
     """
     Solve the Navigation Orienteering Problem (NOP).
 
@@ -232,6 +240,7 @@ def solve_nop(directory: str | None,
         path_planner (str): Path planner.
         disable_cache (bool): Whether to disable caching.
         sec_local_search (int): Secondary local search.
+        model (any): Neural A* or Vanilla A* model, or None.
 
     Returns:
         tuple: Cost, tour (list of coordinates), duration, and success.
@@ -266,7 +275,7 @@ def solve_nop(directory: str | None,
         prize_copy = prize.copy()
 
         # Initialize parameters
-        planner = path_planning(obs, method=path_planner, scale=scale)
+        planner = path_planning(obs, method=path_planner, scale=scale, model=model)
         finished, success, start, nav = False, False, depot_ini, np.array([[0, *(depot_ini / scale)]])
         id_map, end_id = [m for m in range(len(loc))], len(loc) + 1
 
@@ -285,7 +294,7 @@ def solve_nop(directory: str | None,
             if path_planner == 'd_star':
                 planner.set_obs_map()
             steps = np.concatenate(([start], np.stack((rx, ry), axis=1), [goal_coords]), axis=0)
-            error = len(rx) == 1 and np.linalg.norm(start - goal_coords) > planner.resolution / scale
+            error = len(rx) == 1 and np.linalg.norm(start - goal_coords) > planner.step_size * 1.5
             start = np.array(goal_coords)
 
             # Update data

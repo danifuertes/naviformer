@@ -88,6 +88,7 @@ class Map:
 
 class DStar:
     def __init__(self, obs, margin=5, scale=100):
+        self.scale = scale
         self.create_obs_map(obs, margin=margin, scale=scale)
         self.set_obs_map()
 
@@ -122,6 +123,7 @@ class DStar:
     def set_obs_map(self):
         self.open_list = set()
         self.resolution = 2
+        self.step_size = self.resolution / self.scale
         self.map = Map(self.scale + 1, self.scale + 1)
         self.map.set_obstacle([(i, j) for i, j in zip(self.ox, self.oy)])
     

@@ -96,7 +96,6 @@ def main(opts: argparse.Namespace) -> None:
                 int(opts.max_length[i]) if opts.max_length[i].is_integer() else opts.max_length[i]
             )
             obs_str = f"_{opts.num_obs[0]}-{opts.num_obs[1]}obs"
-            # obs_str = '_j{}obs'.format(OBS) if opts.max_obs else ''
             filename = os.path.join(
                 data_dir,
                 f"{opts.name}_seed{opts.seed}{length_str}{obs_str}.pkl"

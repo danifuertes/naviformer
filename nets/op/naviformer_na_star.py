@@ -516,7 +516,16 @@ class NaviFormerNAStar(nn.Module):
             ), dim=-1)
         return selected_direction
     
-    def obs2maps(self, obs):
+    def obs2maps(self, obs: torch.Tensor) -> torch.Tensor:
+        """
+        Create obstacles' map.
+
+        Args:
+            obs (torch.Tensor): obstacles.
+
+        Returns:
+            torch.Tensor: obstacles' map.
+        """
         batch_size, num_obs, _ = obs.shape
         x, y = torch.meshgrid(
             torch.linspace(0, 1, self.map_size, device=obs.device),
@@ -531,7 +540,18 @@ class NaviFormerNAStar(nn.Module):
         # Create the masks by comparing distances with radius
         return (distances > obs[..., None, None, 2] + 0.02).all(dim=1).permute(0, 2, 1).float()
     
-    def node2map(self, node, obs_map, batch_ids):
+    def node2map(self, node: torch.Tensor, obs_map: torch.Tensor, batch_ids: torch.Tensor) -> torch.Tensor:
+        """
+        Create a map for either the start or goal nodes as required by Neural A*.
+
+        Args:
+            node (torch.Tensor): coordinates of the start or goal node.
+            obs_map (torch.Tensor): obstacles' map.
+            batch_ids (torch.Tensor): arange of batch ids.
+
+        Returns:
+            torch.Tensor: _description_
+        """
         node_x = (node[..., 0] * self.map_size).type(torch.int64)
         node_x = torch.clamp(node_x, 0, self.map_size - 1).long()
         node_y = (node[..., 1] * self.map_size).type(torch.int64)
@@ -540,26 +560,65 @@ class NaviFormerNAStar(nn.Module):
         node_map[batch_ids, node_y, node_x] = 1
         return node_map
     
-    def map2dirs(self, predicted_map, start, goal, max_iters=300):
+    def map2dirs(self, predicted_map: torch.Tensor, start: torch.Tensor, goal: torch.Tensor, max_iters: int = 300) -> torch.Tensor:
+        """
+        Convert map with path predicted by Neural A* into a sequence of coordinates.
+
+        Args:
+            predicted_map (torch.Tensor): map with the predicted path predicted by Neural A*.
+            start (torch.Tensor): coordinates of starting node.
+            goal (torch.Tensor): coordinates of goal node.
+            max_iters (int, optional): max number of iterations. Defaults to 300.
+
+        Returns:
+            torch.Tensor: _description_
+        """
         pos = start.clone()
+        
+        # Initialize mask that allows different path lengths across elements from the same batch
         not_done = torch.ones_like(pos[:, 0]).bool()
-        i, path = 0, [
+        
+        # Add starting node at the beginning of the path
+        path = [
             torch.cat((torch.zeros_like(pos[:, 0, None]).long(), start), dim=-1)
         ]
+        
+        # Sequentially decode path
+        i = 0
         while not_done.any().item() and i < max_iters:
             dirs = -torch.ones_like(pos[:, 0]).long()
+            
+            # Get next position from current node
             p, d, predicted_map = self.max_adjacent(predicted_map, pos)
+            
+            # Save next position if not done yet
             pos[not_done], dirs[not_done] = p[not_done], d[not_done]
             path.append(torch.cat((dirs[:, None], pos), dim=-1))
+            
+            # Check if done
             not_done = ~self.check_coords(pos, goal)
             i += 1
+        
+        # Add goal node at the end of the path
         path.append(
             torch.cat((-torch.ones_like(pos[:, 0, None]).long(), goal), dim=-1)
         )
+        
+        # Return path as tensor
         return torch.stack(path, dim=1)
         
     @ staticmethod
-    def max_adjacent(maps, coords):
+    def max_adjacent(maps: torch.Tensor, coords: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        From given position (coords) and map with path predicted by Neural A*, get the next adjacent position of the path.
+
+        Args:
+            maps (torch.Tensor): map with the predicted path predicted by Neural A*.
+            coords (torch.Tensor): current position.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: next position, next direction, updated map (with current position removed).
+        """
         
         # Dimensions
         batch_size, height, width = maps.size()
@@ -598,7 +657,17 @@ class NaviFormerNAStar(nn.Module):
         return next_coords, dirs, maps
     
     @staticmethod
-    def check_coords(coords1, coords2):
+    def check_coords(coords1: torch.Tensor, coords2: torch.Tensor) -> torch.Tensor:
+        """
+        Check if 2 positions are the same (or very close to each other).
+
+        Args:
+            coords1 (torch.Tensor): first position.
+            coords2 (torch.Tensor): second position.
+
+        Returns:
+            torch.Tensor: boolean indicating if the positions are the same or not.
+        """
         return torch.linalg.norm(coords1 - coords2, dim=-1) < 0.02
 
     @staticmethod

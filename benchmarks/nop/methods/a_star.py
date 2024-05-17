@@ -1,17 +1,17 @@
 import torch
 from neural_astar.planner import VanillaAstar as VAStar
-from neural_astar.utils.training import load_from_ptl_checkpoint
 # from neural_astar.utils.data import visualize_results, create_dataloader
 
 
 class AStar:
     
-    def __init__(self, obs, grid_size=(32, 32), batch_size=1, device='cpu', scale=100) -> None:
+    def __init__(self, obs, grid_size=(32, 32), batch_size=1, device='cpu', scale=100, model=None) -> None:
         self.scale = scale
         self.grid_size = grid_size
+        self.step_size = 1 / max(grid_size)
         self.batch_size = batch_size
         self.device = device
-        self.model = VAStar().to(self.device)
+        self.model = VAStar().to(self.device) if model is None else model
         self.model.eval()
         self.create_obs_map(obs, scale=scale)
     

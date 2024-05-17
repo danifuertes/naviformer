@@ -2,6 +2,10 @@ from utils import *
 from envs import print_results
 from benchmarks import parse_runs, multiprocessing, solve_nop
 
+from neural_astar.planner import NeuralAstar as NAStar
+from neural_astar.planner import VanillaAstar as VAStar
+from neural_astar.utils.training import load_from_ptl_checkpoint
+
 
 PROBLEMS = global_vars()['PROBLEMS']
 
@@ -33,11 +37,15 @@ def get_options() -> argparse.Namespace:
     parser.add_argument("--path_planner", help="Name of the path planner to evaluate: [a_star, d_star, na_star]")
 
     # Misc
+    parser.add_argument('--use_cuda', type=str2bool, default=True, help="True to use CUDA (only for na_star)")
     parser.add_argument("--cpus", type=int, help="Number of CPUs to use, defaults to all cores")
     parser.add_argument('--multiprocessing', type=str2bool, default=False, help='Use multiprocessing')
     parser.add_argument('--disable_cache', action='store_true', help='Disable caching')
     parser.add_argument('--progress_bar_mininterval', type=float, default=0.1, help='Minimum interval')
     opts = parser.parse_args()
+
+    # Use CUDA or CPU (only for Neural A*)
+    opts.use_cuda = torch.cuda.is_available() and opts.use_cuda
 
     # Get chosen local search runs
     opts.runs, opts.route_planner = parse_runs(opts.route_planner)
@@ -66,6 +74,9 @@ def main(opts) -> None:
         opts (argparse.Namespace): Parsed command-line arguments.
     """
 
+    # Device (only for Neural A*)
+    device = torch.device("cuda" if opts.use_cuda else "cpu")
+
     # For each dataset
     for dataset_path in opts.datasets:
         absolute_path = dataset_path if os.path.isabs(dataset_path) else os.path.join(
@@ -74,6 +85,15 @@ def main(opts) -> None:
 
         # Algorithm
         model_name = '-'.join([opts.route_planner, opts.path_planner])
+        if opts.path_planner == 'na_star':
+            model = NAStar(encoder_arch='CNN').to(device)
+            model.load_state_dict(load_from_ptl_checkpoint(
+                "./benchmarks/nop/methods/neural-astar/model/mazes_032_moore_c8/lightning_logs/"
+            ))
+        elif opts.path_planner == 'a_star':
+            model = VAStar().to(device)
+        else:
+            model = None
 
         # Output filename to save results
         out_file, _ = get_results_file(opts, dataset_path, opts.problem, model_name)
@@ -97,6 +117,7 @@ def main(opts) -> None:
             path_planner=opts.path_planner,
             disable_cache=opts.disable_cache,
             sec_local_search=opts.runs,
+            model=model,
             use_multiprocessing=opts.multiprocessing,
         )
 

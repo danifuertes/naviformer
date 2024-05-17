@@ -8,6 +8,10 @@ from envs import load_problem
 from nets import load_model_eval
 from benchmarks import solve_nop, parse_runs
 
+from neural_astar.planner import NeuralAstar as NAStar
+from neural_astar.planner import VanillaAstar as VAStar
+from neural_astar.utils.training import load_from_ptl_checkpoint
+
 
 PROBLEMS = global_vars()['PROBLEMS']
 DATA_DIST = global_vars()['DATA_DIST']
@@ -66,14 +70,18 @@ def get_options(args: list = None) -> argparse.Namespace:
     return opts
 
 
-def compute_benchmark(opts: argparse.Namespace, batch: torch.Tensor | dict, **kwargs) -> \
-        Tuple[np.ndarray, np.ndarray | dict, str, bool]:
+def compute_benchmark(
+        opts: argparse.Namespace,
+        batch: torch.Tensor | dict,
+        device: torch.types.Device,
+        **kwargs) -> Tuple[np.ndarray, np.ndarray | dict, str, bool]:
     """
     Apply an algorithm from the benchmark to calculate the visualized path.
 
     Args:
         opts (argparse.Namespace): Options.
         batch (torch.Tensor or dict): Input batch.
+        device (torch.device): The device (only for Neural A*)
 
     Returns:
         tuple: A tuple containing the actions, batch, model name, and success flag.
@@ -94,6 +102,15 @@ def compute_benchmark(opts: argparse.Namespace, batch: torch.Tensor | dict, **kw
         'na_star': 'NA*',
     }.get(path_planner)
     model_name = route_name + '-' + path_name
+    if opts.path_planner == 'na_star':
+        model = NAStar(encoder_arch='CNN').to(device)
+        model.load_state_dict(load_from_ptl_checkpoint(
+            "./benchmarks/nop/methods/neural-astar/model/mazes_032_moore_c8/lightning_logs/"
+        ))
+    elif opts.path_planner == 'a_star':
+        model = VAStar().to(device)
+    else:
+        model = None
 
     # Prepare inputs
     batch, dict_keys = batch2numpy(batch, to_list=True)
@@ -107,6 +124,7 @@ def compute_benchmark(opts: argparse.Namespace, batch: torch.Tensor | dict, **kw
         path_planner=path_planner,
         disable_cache=False,
         sec_local_search=runs,
+        model=model,
     )
 
     # Lists to numpy arrays

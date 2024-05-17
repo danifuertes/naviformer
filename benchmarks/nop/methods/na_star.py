@@ -6,12 +6,13 @@ from neural_astar.utils.training import load_from_ptl_checkpoint
 
 class NeuralAStar:
     
-    def __init__(self, obs, grid_size=(32, 32), batch_size=1, device='cpu', scale=100) -> None:
+    def __init__(self, obs, grid_size=(32, 32), batch_size=1, device='cpu', scale=100, model=None) -> None:
         self.scale = scale
         self.grid_size = grid_size
+        self.step_size = 1 / max(grid_size)
         self.batch_size = batch_size
         self.device = device
-        self.model = NAStar(encoder_arch='CNN').to(self.device)
+        self.model = NAStar(encoder_arch='CNN').to(self.device) if model is None else model
         self.model.load_state_dict(load_from_ptl_checkpoint(
             "./benchmarks/nop/methods/neural-astar/model/mazes_032_moore_c8/lightning_logs/"
         ))
