@@ -339,7 +339,9 @@ class OpState(NamedTuple):
         batch_ids = torch.arange(self.get_batch_size(), dtype=torch.int64, device=self.device)
         
         # Check which nodes can be visited without exceeding the max_length constraint
-        exceeds_length = self.length + (self.get_regions()[batch_ids] - self.position[:, None]).norm(p=2, dim=-1) + eps > self.max_length 
+        exceeds_length = self.length[:, None] + (
+            self.get_regions()[batch_ids] - self.position[:, None]
+        ).norm(p=2, dim=-1) + eps > self.max_length[:, None] 
 
         # Define mask (with visited nodes)
         visited_ = self.visited.to(torch.bool)
