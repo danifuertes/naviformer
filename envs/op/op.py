@@ -23,6 +23,7 @@ class OpEnv:
                  device: torch.types.Device = None,
                  num_dirs: int = 4,
                  time_step: float = 2e-2,
+                 eps: float = 0.,
                  *args, **kwargs) -> None:
         """
         Initialize the environment.
@@ -33,6 +34,8 @@ class OpEnv:
             device (torch.device): Torch device.
             num_dirs (int): Number of possible actions.
             time_step (float): Time step.
+            eps (float): tolerance, useful for 2-step methods. It gives some margin to reach the end depot on time.
+
         """
 
         # Name of the env
@@ -53,6 +56,9 @@ class OpEnv:
 
         # Time step
         self.time_step = time_step
+        
+        # Tolerance
+        self.eps = eps
 
     def get_state(self, batch: dict | torch.Tensor) -> Any:
         """
@@ -61,7 +67,7 @@ class OpEnv:
         Args:
             batch (dict or torch.Tensor): batch of data.
         """
-        return OpState.initialize(batch, num_dirs=self.num_dirs, time_step=self.time_step)
+        return OpState.initialize(batch, num_dirs=self.num_dirs, time_step=self.time_step, eps=self.eps)
 
 
 class OpState(NamedTuple):
@@ -90,6 +96,7 @@ class OpState(NamedTuple):
     done: bool                      # Terminal state for every element of the batch
     min_value: float                # Minimum normalization value
     max_value: float                # Maximum normalization value
+    eps: float                      # Tolerance, useful for 2-step methods. It gives some margin to reach the end depot on time.
 
     def __getitem__(self, key):
         """
@@ -123,8 +130,9 @@ class OpState(NamedTuple):
     def initialize(batch: dict | torch.Tensor,
                    num_dirs: int = 4,
                    time_step: float = 2e-2,
-                   min_value: int = 0,
-                   max_value: int = 1) -> Any:
+                   min_value: float = 0.,
+                   max_value: float = 1.,
+                   eps: float = 0.) -> Any:
         """
         Initialize the state.
 
@@ -134,6 +142,7 @@ class OpState(NamedTuple):
             time_step (float): Time step.
             min_value (float): Minimum value for normalization.
             max_value (float): Maximum value for normalization.
+            eps (float): tolerance, useful for 2-step methods. It gives some margin to reach the end depot on time.
 
         Returns:
             NopState: Initialized state.
@@ -198,6 +207,7 @@ class OpState(NamedTuple):
             time_step=time_step,
             min_value=min_value,
             max_value=max_value,
+            eps=eps,
             reward=reward,
             done=done
         )
@@ -334,14 +344,13 @@ class OpState(NamedTuple):
         Returns:
             torch.Tensor: Mask for nodes.
         """
-        eps = 0  # 0.5 # Tolerance
         end_idx = self.get_end_idx()
         batch_ids = torch.arange(self.get_batch_size(), dtype=torch.int64, device=self.device)
         
         # Check which nodes can be visited without exceeding the max_length constraint
         exceeds_length = self.length[:, None] + (
             self.get_regions()[batch_ids] - self.position[:, None]
-        ).norm(p=2, dim=-1) + eps > self.max_length[:, None] 
+        ).norm(p=2, dim=-1) + self.eps > self.max_length[:, None] 
 
         # Define mask (with visited nodes)
         visited_ = self.visited.to(torch.bool)

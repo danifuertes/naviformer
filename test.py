@@ -16,6 +16,8 @@ def get_options() -> argparse.Namespace:
 
     # Data
     parser.add_argument('datasets', nargs='+', help="Filename of the dataset(s) to evaluate")
+    parser.add_argument('--eps', type=float, default=0., help="Tolerance, useful for 2-step methods (problem must be 'op'). "
+                        "It gives some margin to reach the end depot on time")
 
     # Model
     parser.add_argument('--model', type=str, help='Path to model')
@@ -81,6 +83,7 @@ def main(opts):
             device=device,
             filename=dataset_path,
             num_dirs=num_dirs,
+            eps=opts.eps,
             desc='Load data'
         )
 
@@ -99,7 +102,7 @@ def main(opts):
             results[1] = [*results[1], *actions.tolist()]
             results[2] = [*results[2], *success.tolist()]
             results[3] = [*results[3], duration]
-            results[4] = [*results[4], batch['loc'].shape[1]]
+            results[4] = [*results[4], *(batch['loc'][..., 0] > 0).sum(dim=1).detach().cpu().numpy().tolist()]
 
         # Add parallelism info to results
         parallelism = opts.batch_size

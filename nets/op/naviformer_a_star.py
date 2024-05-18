@@ -2,13 +2,12 @@ import os
 import math
 import torch
 from torch import nn
-from neural_astar.planner import NeuralAstar as NAStar
-from neural_astar.utils.training import load_from_ptl_checkpoint
+from neural_astar.planner import VanillaAstar
 
 from ..modules import *
 
 
-class NaviFormerNAStar(nn.Module):
+class NaviFormerAStar(nn.Module):
     """NaviFormer neural network with Neural A*"""
 
     def __init__(self,
@@ -35,7 +34,7 @@ class NaviFormerNAStar(nn.Module):
             tanh_clipping (float): Clip tanh values.
             normalization (str): Type of normalization.
         """
-        super(NaviFormerNAStar, self).__init__()
+        super(NaviFormerAStar, self).__init__()
         assert embed_dim % num_heads == 0, f"Embedding dimension should be dividable by number of heads, " \
                                            f"found embed_dim={embed_dim} and num_heads={num_heads}"
 
@@ -108,10 +107,7 @@ class NaviFormerNAStar(nn.Module):
         # Neural A* model
         self.patch_size = 16      # Size of local maps
         self.map_size = 64        # Size of global map
-        self.na_star = NAStar(encoder_arch='CNN')
-        self.na_star.load_state_dict(load_from_ptl_checkpoint(
-            "./benchmarks/nop/methods/neural-astar/model/mazes_032_moore_c8/lightning_logs/"
-        ))
+        self.a_star = VanillaAstar()
 
         # Initialize fixed data (computed only during the first iteration)
         self.fixed_data = None
@@ -506,7 +502,7 @@ class NaviFormerNAStar(nn.Module):
         try:
             self.check_nastar_error(obs_map, start)  # For some reason, NAStar fails if there are obstacles adjacent to start/goal positions
             self.check_nastar_error(obs_map, goal)
-            predicted_map = self.na_star(
+            predicted_map = self.a_star(
                 obs_map[:, None].contiguous(),
                 start_map[:, None].contiguous(),
                 goal_map[:, None].contiguous()

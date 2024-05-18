@@ -46,8 +46,10 @@ def get_options(args: list = None) -> argparse.Namespace:
     parser.add_argument('--max_length', type=float, default=2., help="Normalized time limit to solve the problem")
     parser.add_argument('--data_dist', type=str, default='const',
                         help=f"Data distribution (reward values of regions) of OP. Options: {', '.join(DATA_DIST)}")
-    parser.add_argument('--num_obs', type=int, nargs='+', default=(0, 0), help='Tuple of 2 values indicating min and max number of obstacles')
-    parser.add_argument('--rad_obs', type=float, nargs='+', default=(.02, .12), help='Tuple of 2 values indicating min and max radious of obstacles')
+    parser.add_argument('--num_obs', type=int, nargs='+', default=(0, 0), help="Tuple of 2 values indicating min and max number of obstacles")
+    parser.add_argument('--rad_obs', type=float, nargs='+', default=(.02, .12), help="Tuple of 2 values indicating min and max radious of obstacles")
+    parser.add_argument('--eps', type=float, default=0., help="Tolerance, useful for 2-step methods (problem must be 'op'). "
+                        "It gives some margin to reach the end depot on time")
 
     # Agents
     parser.add_argument('--num_agents', type=int, default=1, help="Number of agents")
@@ -55,8 +57,8 @@ def get_options(args: list = None) -> argparse.Namespace:
 
     # Misc
     parser.add_argument('--use_cuda', type=str2bool, default=True, help="True to use CUDA")
-    parser.add_argument('--dataset', type=str, default='', help='Path to load dataset. If more than one scenario in,'
-                        'the dataset, only the first one is used. If None, a random one is generated')
+    parser.add_argument('--dataset', type=str, default='', help="Path to load dataset. If more than one scenario in,"
+                        "the dataset, only the first one is used. If None, a random one is generated")
     opts = parser.parse_args(args)
 
     # Use CUDA or CPU
@@ -209,6 +211,7 @@ def main(opts: argparse.Namespace) -> None:
         num_obs=opts.num_obs,
         rad_obs=opts.rad_obs,
         num_dirs=opts.num_dirs,
+        eps=opts.eps,
         desc='Load data'
     )
 

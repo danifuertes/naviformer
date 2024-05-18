@@ -18,6 +18,7 @@ MODELS = {
         'naviformer2step': NaviFormer2Step,
         'pn2step': PN2Step,
         'gpn2step': GPN2Step,
+        'naviformer_a_star': NaviFormerAStar,
         'naviformer_na_star': NaviFormerNAStar,
     }
 }
@@ -26,6 +27,7 @@ FANCY_NAME = {
     'naviformer2step': 'NaviFormer2Step',
     'pn2step': 'PN2Step',
     'gpn2step': 'GPN2Step',
+    'naviformer_a_star': 'NaviFormerAStar',
     'naviformer_na_star': 'NaviFormerNAStar',
     'pn': 'PN',
     'gpn': 'GPN',
