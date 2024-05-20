@@ -501,49 +501,25 @@ class NaviFormerNAStar(nn.Module):
         # Get next selected goal
         goal = state.get_regions()[batch_ids, next_node]
         goal_map = self.node2map(goal, obs_map, batch_ids)
+        
+        # Ensure nodes do not fall within obstacle location after rescale
+        obs_map[start_map == 1] = 1
+        obs_map[goal_map == 1] = 1
 
         # Predict path with NA*
         try:
-            self.check_nastar_error(obs_map, start)  # For some reason, NAStar fails if there are obstacles adjacent to start/goal positions
-            self.check_nastar_error(obs_map, goal)
             predicted_map = self.na_star(
                 obs_map[:, None].contiguous(),
                 start_map[:, None].contiguous(),
                 goal_map[:, None].contiguous()
             ).paths[:, 0]
             selected_direction = self.map2dirs(predicted_map, start, goal)
-        except IndexError:
+        except:
             path = torch.stack((start, goal), dim=1)
             selected_direction = torch.cat((
                 torch.zeros_like(path[..., 0, None]), path
             ), dim=-1)
         return selected_direction
-    
-    def check_nastar_error(self, maps, coords):
-        # Dimensions
-        batch_size, height, width = maps.size()
-        
-        # Get coordinates in map reference system
-        x = (coords[..., 0] * width).clamp(0, width - 1)
-        y = (coords[..., 1] * height).clamp(0, height - 1)
-        
-        # Generate indices for adjacent positions including diagonals
-        row_offsets = torch.tensor([0, 1, 1, 1, 0, -1, -1, -1], device=maps.device)
-        col_offsets = torch.tensor([1, 1, 0, -1, -1, -1, 0, 1], device=maps.device)
-        row_idx = (
-            y[:, None].expand(batch_size, len(row_offsets)) + \
-            row_offsets[None].expand(batch_size, len(row_offsets))
-        ).clamp(0, height - 1).long()
-        col_idx = (
-            x[:, None].expand(batch_size, len(col_offsets)) + \
-            col_offsets[None].expand(batch_size, len(col_offsets))
-        ).clamp(0, width - 1).long()
-        
-        # Get values of adjacent positions
-        batch_idx = torch.arange(batch_size)[:, None].expand(batch_size, 8).to(maps.device)
-        adjacent_values = maps[batch_idx, row_idx, col_idx]
-        if adjacent_values.sum() > 0:
-            raise IndexError
     
     def obs2maps(self, obs: torch.Tensor) -> torch.Tensor:
         """
@@ -579,7 +555,7 @@ class NaviFormerNAStar(nn.Module):
             batch_ids (torch.Tensor): arange of batch ids.
 
         Returns:
-            torch.Tensor: _description_
+            torch.Tensor: map for start/goal node.
         """
         node_x = (node[..., 0] * self.map_size).type(torch.int64)
         node_x = torch.clamp(node_x, 0, self.map_size - 1).long()

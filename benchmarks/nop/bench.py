@@ -35,6 +35,8 @@ def get_options() -> argparse.Namespace:
     # Algorithms
     parser.add_argument("--route_planner", help="Name of the route planner to evaluate: [ortools, opga]")
     parser.add_argument("--path_planner", help="Name of the path planner to evaluate: [a_star, d_star, na_star]")
+    parser.add_argument('--eps', type=float, default=0., help="Tolerance, useful for 2-step methods (problem must be 'op'). "
+                        "It gives some margin to reach the end depot on time")
 
     # Misc
     parser.add_argument('--use_cuda', type=str2bool, default=True, help="True to use CUDA (only for na_star)")
@@ -118,6 +120,7 @@ def main(opts) -> None:
             disable_cache=opts.disable_cache,
             sec_local_search=opts.runs,
             model=model,
+            eps=opts.eps,
             use_multiprocessing=opts.multiprocessing,
         )
 

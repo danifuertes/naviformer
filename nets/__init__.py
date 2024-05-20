@@ -18,7 +18,13 @@ MODELS = {
         'naviformer2step': NaviFormer2Step,
         'pn2step': PN2Step,
         'gpn2step': GPN2Step,
+        'pn_a_star': PNAStar,
+        'pn_na_star': PNNAStar,
+        # 'gpn_a_star': PNNAStar,
+        # 'gpn_na_star': PNNAStar,
         'naviformer_a_star': NaviFormerAStar,
+        'naviformer_na_star': NaviFormerNAStar,
+        'naviformer_na_star': NaviFormerNAStar,
         'naviformer_na_star': NaviFormerNAStar,
     }
 }
@@ -27,6 +33,10 @@ FANCY_NAME = {
     'naviformer2step': 'NaviFormer2Step',
     'pn2step': 'PN2Step',
     'gpn2step': 'GPN2Step',
+    'pn_a_star': 'PNAStar',
+    'pn_na_star': 'PNNAStar',
+    'gpn_a_star': 'GPNAStar',
+    'gpn_na_star': 'GPNNAStar',
     'naviformer_a_star': 'NaviFormerAStar',
     'naviformer_na_star': 'NaviFormerNAStar',
     'pn': 'PN',
@@ -82,7 +92,7 @@ def load_model_train(opts: argparse.Namespace) -> Tuple[torch.nn.Module, dict, i
 
     # Overwrite model parameters by parameters to load
     model_ = get_inner_model(model)
-    model_.load_state_dict({**model_.state_dict(), **load_data.get('model', {})})
+    model_.load_state_dict({**model_.state_dict(), **load_data.get('model', {})}, strict=False)
     return model, load_data, first_epoch
 
 

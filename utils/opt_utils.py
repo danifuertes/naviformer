@@ -15,7 +15,9 @@ def global_vars() -> dict:
     return {
         'PROBLEMS': ['nop', 'op'],
         'DATA_DIST': ['const', 'unif', 'dist'],
-        'MODELS': ['naviformer', 'pn', 'gpn', 'naviformer2step', 'pn2step', 'gpn2step', 'naviformer_a_star', 'naviformer_na_star'],
+        'MODELS': ['naviformer', 'pn', 'gpn', 'naviformer2step', 'pn2step', 'gpn2step',
+                   'naviformer_a_star', 'naviformer_na_star', 'pn_na_star', 'pn_a_star',
+                   'gpn_na_star', 'gpn_a_star'],
         'NORM': ['batch', 'instance'],
         'DECODE_STRATEGY': ['greedy', 'sample'],
         'BASELINES': ['rollout', 'critic', 'exponential', None],

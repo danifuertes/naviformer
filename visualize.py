@@ -104,12 +104,12 @@ def compute_benchmark(
         'na_star': 'NA*',
     }.get(path_planner)
     model_name = route_name + '-' + path_name
-    if opts.path_planner == 'na_star':
+    if path_planner == 'na_star':
         model = NAStar(encoder_arch='CNN').to(device)
         model.load_state_dict(load_from_ptl_checkpoint(
             "./benchmarks/nop/methods/neural-astar/model/mazes_032_moore_c8/lightning_logs/"
         ))
-    elif opts.path_planner == 'a_star':
+    elif path_planner == 'a_star':
         model = VAStar().to(device)
     else:
         model = None
@@ -127,6 +127,7 @@ def compute_benchmark(
         disable_cache=False,
         sec_local_search=runs,
         model=model,
+        eps = opts.eps,
     )
 
     # Lists to numpy arrays

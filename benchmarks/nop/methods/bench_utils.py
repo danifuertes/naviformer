@@ -144,7 +144,7 @@ def path_planning(
     if method == 'a_star':
         # grid_size, robot_radius = 2, 2
         # planner = AStar(obs, margin=margin, scale=scale, resolution=grid_size, rr=robot_radius)
-        planner = AStar(obs, scale=scale, grid_size=(scale, scale), model=model)
+        planner = AStar(obs, scale=scale, grid_size=(64, 64), model=model, device=next(model.parameters()).device)
 
     # D*
     elif method == 'd_star':
@@ -152,7 +152,7 @@ def path_planning(
         
     # Neural A*
     elif method == 'na_star':
-        planner = NeuralAStar(obs, scale=scale, grid_size=(scale, scale), model=model)
+        planner = NeuralAStar(obs, scale=scale, grid_size=(64, 64), model=model, device=next(model.parameters()).device)
 
     # D* Lite
     else:
@@ -228,7 +228,8 @@ def solve_nop(directory: str | None,
               path_planner: str = 'a_star',
               disable_cache: bool = False,
               sec_local_search: int = 0,
-              model: Any = None) -> Tuple[float, list, float, bool, int]:
+              model: Any = None,
+              eps: float = 0.) -> Tuple[float, list, float, bool, int]:
     """
     Solve the Navigation Orienteering Problem (NOP).
 
@@ -241,6 +242,7 @@ def solve_nop(directory: str | None,
         disable_cache (bool): Whether to disable caching.
         sec_local_search (int): Secondary local search.
         model (any): Neural A* or Vanilla A* model, or None.
+        eps (float): Epsilon value to avoid surpassing `max_length`.
 
     Returns:
         tuple: Cost, tour (list of coordinates), duration, and success.
@@ -264,7 +266,7 @@ def solve_nop(directory: str | None,
 
         # Upscale scenario for path planner
         scale = 200
-        eps = 0.1 * scale
+        eps = eps * scale
         depot_ini, depot_end = scale * np.array(depot_ini), scale * np.array(depot_end)
         loc = (scale * np.array(loc)).astype(int).tolist()
         obs = (scale * np.array(obs))
@@ -317,6 +319,7 @@ def solve_nop(directory: str | None,
 
         # Save results
         nav = nav.tolist()
+        # cost, nav, success, duration, num_nodes = 0, [[0]], False, 0, 0
         if directory is not None:
             save_dataset((cost, nav, success, duration, num_nodes), problem_filename)
     return cost, nav, success, duration, num_nodes
