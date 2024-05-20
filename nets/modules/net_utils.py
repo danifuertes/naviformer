@@ -210,3 +210,56 @@ def create_local_maps(
 
     # Return obstacle patches and goal patches
     return torch.concat((obs_patches, goal_patches), dim=1)
+
+
+def create_global_maps(
+        pos: torch.Tensor,
+        obs_map: torch.Tensor,
+        goal: torch.Tensor,
+        patch_size: int,
+        map_size: int) -> torch.Tensor:
+    """
+    Create local maps.
+
+    Args:
+        pos (torch.Tensor): The position tensor.
+        obs_map (torch.Tensor): The obstacle map.
+        goal (torch.Tensor): The goal tensor.
+        patch_size (int): The patch size.
+        map_size (int): The size of the map.
+
+    Returns:
+        torch.Tensor: The local maps.
+    """
+    batch_size = pos.shape[0]
+    device = pos.device
+    
+    # Define meshgrid
+    x = torch.linspace(0, map_size, map_size).to(device)
+    y = torch.linspace(0, map_size, map_size).to(device)
+    x, y = torch.meshgrid(x, y, indexing="ij")
+    x = x.expand(batch_size, map_size, map_size)
+    y = y.expand(batch_size, map_size, map_size)
+
+    # Calculate start global map
+    x0 = pos[:, 1].view(-1, 1, 1) * map_size
+    y0 = pos[:, 0].view(-1, 1, 1) * map_size
+    s = patch_size // 8
+    g = 1 / (2 * torch.pi * s * s) * torch.exp(
+        -(torch.div((x - x0) ** 2, (2 * s ** 2)) + torch.div((y - y0) ** 2, (2 * s ** 2)))
+    )
+    max_g = g.view(batch_size, -1).max(dim=-1).values
+    start_map = torch.where((max_g > 0).view(-1, 1, 1), g / max_g.view(-1, 1, 1), g)
+
+    # Calculate start global map
+    x0 = goal[:, 1].view(-1, 1, 1) * map_size
+    y0 = goal[:, 0].view(-1, 1, 1) * map_size
+    s = patch_size // 8
+    g = 1 / (2 * torch.pi * s * s) * torch.exp(
+        -(torch.div((x - x0) ** 2, (2 * s ** 2)) + torch.div((y - y0) ** 2, (2 * s ** 2)))
+    )
+    max_g = g.view(batch_size, -1).max(dim=-1).values
+    goal_map = torch.where((max_g > 0).view(-1, 1, 1), g / max_g.view(-1, 1, 1), g)
+
+    # Return obstacle patches and goal patches
+    return torch.stack((start_map, goal_map, obs_map), dim=1)

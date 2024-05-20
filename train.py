@@ -55,7 +55,8 @@ def get_options(args: list = None) -> argparse.Namespace:
     parser.add_argument('--num_heads', type=int, default=8, help="Number of multi-heads for attention operations")
     parser.add_argument('--num_blocks', type=int, default=3, help="Number of blocks in the encoder/critic network")
     parser.add_argument('--embed_dim', type=int, default=128, help="Dimension of embeddings")
-    parser.add_argument('--normalization', default='batch', help="Normalization type, 'batch' or 'instance'")
+    parser.add_argument('--maps', type=str, default='local', help="Type of maps for direction prediction: local, global or None")
+    parser.add_argument('--normalization', type=str, default='batch', help="Normalization type, 'batch' or 'instance'")
     parser.add_argument('--tanh_clipping', type=float, default=10., help="Clip the parameters to within +- this value"
                         "using tanh. Set to 0 to not perform any clipping.")
     parser.add_argument('--two_step', type=str, default='', help=f"Path to base model for baseline 2-step approach")

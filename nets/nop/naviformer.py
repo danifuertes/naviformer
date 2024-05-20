@@ -19,6 +19,7 @@ class NaviFormer(nn.Module):
                  num_blocks: int = 2,
                  tanh_clipping: float = 10.,
                  normalization: str = 'batch',
+                 maps='local',
                  **kwargs) -> None:
         """
         Initialize NaviFormer model.
@@ -33,6 +34,7 @@ class NaviFormer(nn.Module):
             num_blocks (int): Number of encoding blocks.
             tanh_clipping (float): Clip tanh values.
             normalization (str): Type of normalization.
+            maps (str): type of maps for direction prediction: local, global or None.
         """
         super(NaviFormer, self).__init__()
         assert embed_dim % num_heads == 0, f"Embedding dimension should be dividable by number of heads, " \
@@ -101,28 +103,57 @@ class NaviFormer(nn.Module):
         # Projection for the result of inner MHA (num_heads * val_dim == embed_dim, so input is embed_dim)
         self.project_mha = nn.Linear(embed_dim, embed_dim, bias=False)
 
-        # Direction dimensions
-        conv_dim = 4              # Convolution dimension
-        num_maps = 4 * 2          # Number of local maps: 4 to represent obstacles and 4 to represent goals
-        self.num_dirs = num_dirs  # Number of actions
-        self.patch_size = 16      # Size of local maps
-        self.map_size = 64        # Size of global map
-
         # Direction embeddings
         self.position_embed = nn.Linear(2, embed_dim)   # Embedding for the agent position
-        self.path_prediction = nn.Sequential(               # Prediction layers
-            nn.Conv2d(num_maps, conv_dim, kernel_size=3, padding='same'),
-            nn.ReLU(),
-            nn.BatchNorm2d(conv_dim, affine=True),
-            nn.Conv2d(conv_dim, conv_dim, kernel_size=3, padding='same'),
-            nn.ReLU(),
-            nn.BatchNorm2d(conv_dim, affine=True),
-            nn.Flatten(),
-            nn.Linear(conv_dim * self.patch_size * self.patch_size // 2, embed_dim),
-            nn.ReLU(),
-            (nn.BatchNorm1d if normalization == 'batch' else nn.InstanceNorm1d)(embed_dim, affine=True),
-            nn.Linear(embed_dim, self.num_dirs),
-        )
+        
+        # Number of directions
+        self.num_dirs = num_dirs
+
+        # Direction prediction
+        self.maps = maps
+        self.patch_size = 16                            # Size of local maps
+        conv_dim = 4                                    # Convolution dimension
+        if maps == 'local':                             # Local maps: 4 to represent obstacles and 4 to represent goals
+            num_maps = 4 * 2
+            self.map_size = 64                          # Size of global maps
+            self.path_prediction = nn.Sequential(
+                nn.Conv2d(num_maps, conv_dim, kernel_size=3, padding='same'),
+                nn.ReLU(),
+                nn.BatchNorm2d(conv_dim, affine=True),
+                nn.Conv2d(conv_dim, conv_dim, kernel_size=3, padding='same'),
+                nn.ReLU(),
+                nn.BatchNorm2d(conv_dim, affine=True),
+                nn.Flatten(),
+                nn.Linear(conv_dim * self.patch_size * self.patch_size // 2, embed_dim),
+                nn.ReLU(),
+                (nn.BatchNorm1d if normalization == 'batch' else nn.InstanceNorm1d)(embed_dim, affine=True),
+                nn.Linear(embed_dim, self.num_dirs),
+            )
+        elif maps == 'global':                          # Global mapps: 3 channels (obstacles, start node, end node)
+            num_maps = 3
+            self.map_size = 32                          # Size of global maps
+            self.path_prediction = nn.Sequential(               # Prediction layers
+                nn.Conv2d(num_maps, conv_dim, kernel_size=3, padding='same'),
+                nn.ReLU(),
+                nn.BatchNorm2d(conv_dim, affine=True),
+                nn.Conv2d(conv_dim, conv_dim, kernel_size=3, padding='same'),
+                nn.ReLU(),
+                nn.BatchNorm2d(conv_dim, affine=True),
+                nn.Flatten(),
+                nn.Linear(conv_dim * self.map_size * self.map_size, embed_dim),
+                nn.ReLU(),
+                (nn.BatchNorm1d if normalization == 'batch' else nn.InstanceNorm1d)(embed_dim, affine=True),
+                nn.Linear(embed_dim, self.num_dirs),
+            )
+        else:                                           # No maps: linear projection of position + goal + obstacles
+            num_maps = 4 + 3 * self.num_obs[1]
+            self.map_size = 64                          # Size of global maps
+            self.path_prediction = nn.Sequential(               # Prediction layers
+                nn.Linear(num_maps, embed_dim),
+                nn.ReLU(),
+                (nn.BatchNorm1d if normalization == 'batch' else nn.InstanceNorm1d)(embed_dim, affine=True),
+                nn.Linear(embed_dim, self.num_dirs),
+            )
 
         # Initialize fixed data (computed only during the first iteration)
         self.fixed_data = None
@@ -259,6 +290,12 @@ class NaviFormer(nn.Module):
 
         # Create obstacle map for direction prediction
         obs_map, obs_grid = create_obs_map(obs, self.patch_size, self.map_size)
+        if self.maps == 'global':
+            obs_map = obs_map[:, self.patch_size//2:-self.patch_size//2, self.patch_size//2:-self.patch_size//2]
+            obs_map = obs_map / obs_map.reshape(obs_map.shape[0], -1).max(dim=-1)[0].reshape(-1, 1, 1)
+            obs_grid = None
+        elif self.maps != 'local':
+            obs_map, obs_grid = None, None
         obs_data = (obs_embedding_mean, obs_map, obs_grid)
 
         # Project averaged graph embedding (across nodes) for state embedding
@@ -496,15 +533,23 @@ class NaviFormer(nn.Module):
         Returns:
             torch.Tensor: Log probabilities.
         """
-        batch_ids = torch.arange(next_node.shape[0], dtype=torch.int64, device=next_node.device)
+        batch_size = next_node.shape[0]
+        batch_ids = torch.arange(batch_size, dtype=torch.int64, device=next_node.device)
 
         # Get next selected goal
         goal = state.get_regions()[batch_ids, next_node]
 
-        # Get local maps
-        maps = create_local_maps(
-            state.position, self.fixed_data.obs_map, self.fixed_data.obs_grid, goal, self.patch_size, self.map_size
-        )
+        # Get local/global/none maps
+        if self.maps == 'local':
+            maps = create_local_maps(
+                state.position, self.fixed_data.obs_map, self.fixed_data.obs_grid, goal, self.patch_size, self.map_size
+            )
+        elif self.maps == 'global':
+            maps = create_global_maps(
+                state.position, self.fixed_data.obs_map, goal, self.patch_size, self.map_size
+            )
+        else:
+            maps = torch.cat((state.position, goal, state.obs.reshape(batch_size, -1)), dim=-1)
 
         # Apply prediction layers
         policy = self.path_prediction(maps)

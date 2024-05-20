@@ -75,6 +75,7 @@ def load_model_train(opts: argparse.Namespace) -> Tuple[torch.nn.Module, dict, i
         combined_mha=opts.combined_mha,
         two_step=two_step,
         num_dirs=opts.num_dirs,
+        maps=opts.maps,
     ).to(opts.device)
 
     # Multi-GPU
@@ -141,6 +142,7 @@ def load_model_eval(path: str,
         combined_mha=args.get('combined_mha', False),
         num_obs=args.get('num_obs', (0, 0)),
         num_dirs=args.get('num_dirs', 4),
+        maps=args.get('maps', 'local'),
         two_step=two_step,
         **kwargs
     )
