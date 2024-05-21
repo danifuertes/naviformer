@@ -31,7 +31,7 @@ def get_options(args: list = None) -> argparse.Namespace:
     parser.add_argument('--num_nodes', type=int, default=20, help="Number of visitable nodes")
     parser.add_argument('--max_nodes', type=int, default=0, help='Max number of nodes (random num_nodes padded with'
                         'dummys until max_nodes). Max length depends on the random num_nodes. Disable with max_nodes=0')
-    parser.add_argument('--num_depots', type=int, default=1, help="Number of depots. Options are 1 or 2. 1"
+    parser.add_argument('--num_depots', type=int, default=2, help="Number of depots. Options are 1 or 2. 1"
                         "means start and end depot are the same. 2 means they are different")
     parser.add_argument('--max_length', type=float, default=2., help="Normalized time limit to solve the problem")
     parser.add_argument('--data_dist', type=str, default='const',

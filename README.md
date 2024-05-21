@@ -1,21 +1,27 @@
-# Route solver
-![](images/python-3.8.svg)
-![](images/torch-1.12.1.svg)
-![](images/cuda-10.2.svg)
-![](images/cudnn-7.6.svg)
+# NaviFormer
+[![](images/python.svg)](https://www.python.org)
+[![](images/framework.svg)](https://pytorch.org)
+[![](images/license.svg)](LICENSE)
+[![](images/publication.svg)](https://neurips.cc)
 
-![](images/top.gif)
+This repository is the official implementation of the following paper:
 
-This repository provides a framework to train, test, and validate neural networks for routing problems using deep
-reinforcement learning.
+> Daniel Fuertes, Andrea Cavallaro, Carlos R. del-Blanco, Fernando Jaureguizar, Narciso García, "NaviFormer: A Deep Reinforcement Learning Transformer-like Model to Holistically Solve the Navigation Problem", submitted to NeurIPS, 2024.
 
-## Dependencies
+If you find this repository useful for your work, please cite our paper:
 
-* Python == 3.10
-* PyTorch == 1.12.1
-* Cuda == 10.2
-* Cudnn == 7.6
-* Create a virtual environment and install dependencies
+```
+<Citation> - (Under review)
+```
+
+## Installation
+The code has been evaluated under the following dependencies:
+* Ubuntu 22.04.4 LTS
+* nvidia-drivers == 535.161.08
+* python3 == 3.10.12
+* python3-venv == 3.10.12
+
+To install the code, clone this repository and go to the working directory. Then, create a virtual environment and install the requirements as follows:
 
 ```bash
 python3 -m venv venv
@@ -27,43 +33,51 @@ pip install neural-astar/.
 cd ../../..
 ```
 
-## Usage
+## Reproducibility
+To reproduce the results of the paper, please download and unzip the datasets and pretrained weights from [here](). Place the datasets' folder (`data`) and the pretrained weights' folder (`pretrained`) in the working directory and run the following scripts:
+
+```bash
+source replicate_results.sh
+source replicate_ablation.sh
+source replicate_comparison.sh
+```
+
+## General usage
 
 First, it is necessary to create test and validation sets:
 ```bash
-python3 -m utils.make_data --name test --seed 1234 --num_samples 10000 --data_dist const --num_depots 2 --num_obs 5 20 --max_length 2 3 4
-python3 -m utils.make_data --name val --seed 4321 --num_samples 10000 --data_dist const --num_depots 2 --num_obs 5 20 --max_length 2 3 4
+python3 -m utils.make_data --name test --seed 1234 --num_samples 10000 --num_obs 5 20 --num_nodes 20 50 100 --max_length 2 3 4
+python3 -m utils.make_data --name val --seed 4321 --num_samples 10000 --num_obs 5 20 --num_nodes 20 50 100 --max_length 2 3 4
 ```
 
-To train the network (`naviformer`) use:
+To train a model use:
+
 ```bash
-python3 train.py --model naviformer --val_dataset data/nop/2depots/const/50/val_seed4321_T3_5-20obs.pkl --num_nodes 50 --data_dist const --num_depots 2 --max_length 3 --num_obs 5 20 --max_nodes 0 --combined_mha T --baseline critic --num_dirs 8
+python3 train.py --model <model> --val_dataset data/nop/2depots/const/50/val_seed4321_T3_5-20obs.pkl --num_nodes 50 --max_length 3 --num_obs 5 20 --max_nodes 0 --combined_mha T --baseline critic --num_dirs 8
 ```
 
-and change the environment conditions (number of nodes, max length, reward distribution...) at your convenience.
+and change the environment conditions (number of nodes, max length, number of directions, validation dataset...) at your convenience. Available models are `naviformer` (NaviFormer), `pn` (Pointer Network), and `gpn` (Graph Pointer Network).
+
+To resume training, run the same command to train and include the option `--resume path/to/model`.
 
 Evaluate your trained models (in folder `outputs`) with:
 ```bash
-python3 test.py data/nop/2depots/const/20/test_seed1234_L2_5obs.pkl --model outputs/np_const20/<model>
-python3 test.py data/nop/2depots/const/50/test_seed1234_L3_5obs.pkl --model outputs/nop_const50/<model>
-python3 test.py data/nop/2depots/const/100/test_seed1234_L4_5obs.pkl --model outputs/nop_const100/<model>
+python3 test.py <path/to/dataset> --model <path/to/model>
 ```
 If the epoch is not specified, the last one in the folder will be used by default.
 
 Route planning algorithms like OR-Tools (`ortools`) and Genetic Algorithm (`ga`) can be combined with path planners
-like A-Star (`a_star`) and D-Star (`d_star`) as follows:
+like A-Star (`a_star`), D-Star (`d_star`), and Neural A-Star (`na_star`) as follows:
 ```bash
-python3 -m benchmarks.nop.bench --route_planner ortools --path_planner a_star --datasets data/nop/2depots/const/20/test_seed1234_L2_5obs.pkl --multiprocessing T
-python3 -m benchmarks.nop.bench --route_planner ortools --path_planner d_star --datasets data/nop/2depots/const/20/test_seed1234_L2_5obs.pkl --multiprocessing T
-python3 -m benchmarks.nop.bench --route_planner ga --path_planner a_star --datasets data/nop/2depots/const/20/test_seed1234_L2_5obs.pkl --multiprocessing T
-python3 -m benchmarks.nop.bench --route_planner ga --path_planner d_star --datasets data/nop/2depots/const/20/test_seed1234_L2_5obs.pkl --multiprocessing T
+python3 -m benchmarks.nop.bench --route_planner <route_planner> --path_planner <path_planner> --datasets <path/to/dataset>
 ```
 
 Finally, you can visualize an example using:
 ```bash
-python3 visualize.py --model outputs/nop_const20/<model> --num_depots 2 --num_nodes 20 --max_length 3 --data_dist const --max_obs 5 --max_nodes 0
-python3 visualize.py --model ortools-a_star --num_depots 2 --num_nodes 20 --max_length 3 --data_dist const --max_obs 5 --max_nodes 0
+python3 visualize.py --model <path/to/model> --num_nodes 50 --max_length 3 --num_obs 5 20 --max_nodes 0
+python3 visualize.py --model <route_planner>-<path_planner> --num_nodes 50 --max_length 3 --num_obs 5 20 --max_nodes 0
 ```
+and change the model or scenario conditions at your convenience.
 
 ### Other options and help
 ```bash
@@ -74,14 +88,9 @@ python3 -m benchmarks.nop.bench -h
 python3 visualize.py -h
 ```
 
-### Coming soon...
-* Implement your own network
-* Implement your own benchmark algorithm
-* Implement your own environment
-* RoboMaster demo
-
 ## Acknowledgements
-This repository is an adaptation of
-[wouterkool/attention-learn-to-route](https://github.com/wouterkool/attention-learn-to-route) for the TOP. The baseline
-algorithms (A-Star, D-Star) were implemented following
-[AtsushiSakai/PythonRobotics](https://github.com/AtsushiSakai/PythonRobotics).
+This implementation is based on the following repositories:
+* [wouterkool/attention-learn-to-route](https://github.com/wouterkool/attention-learn-to-route)
+* [AtsushiSakai/PythonRobotics](https://github.com/AtsushiSakai/PythonRobotics)
+* [qiang-ma/graph-pointer-network](https://github.com/qiang-ma/graph-pointer-network)
+* [omron-sinicx/neural-astar](https://github.com/omron-sinicx/neural-astar)
