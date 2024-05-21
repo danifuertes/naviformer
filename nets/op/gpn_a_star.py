@@ -1,6 +1,7 @@
 import math
 import torch
 from torch import nn
+from neural_astar.planner import VanillaAstar
 
 from ..modules import *
 
@@ -96,8 +97,8 @@ class Attention(nn.Module):
         return e, logits
 
 
-class PN(nn.Module):
-    """Pointer network"""
+class GPNAStar(nn.Module):
+    """Graph Pointer network"""
 
     def __init__(self,
                  embed_dim: int = 128,
@@ -119,7 +120,7 @@ class PN(nn.Module):
             tanh_clipping (float): Clip tanh values.
             normalization (str): Type of normalization.
         """
-        super(PN, self).__init__()
+        super(GPNAStar, self).__init__()
         assert embed_dim % num_heads == 0, f"Embedding dimension should be dividable by number of heads, " \
                                            f"found embed_dim={embed_dim} and num_heads={num_heads}"
 
@@ -144,11 +145,8 @@ class PN(nn.Module):
         self.init_node_placeholder = nn.Parameter(torch.FloatTensor(embed_dim))
         self.init_node_placeholder.data.uniform_(-std, std)
 
-        # Encoder LSTM
-        self.lstm_enc = Encoder(embed_dim, embed_dim)
-
         # Decoder LSTM
-        self.lstm_dec = nn.LSTMCell(embed_dim, embed_dim)
+        self.lstm = nn.LSTMCell(embed_dim, embed_dim)
 
         # Attention
         self.pointer = Attention(embed_dim, use_tanh=tanh_clipping > 0, C=tanh_clipping)
@@ -161,27 +159,30 @@ class PN(nn.Module):
         self.mask_glimpses = mask_inner
         self.mask_logits = mask_logits
         self.decode_type = None  # Needs to be set explicitly before use
+        
+        # Weights for the GNN
+        self.W1 = nn.Linear(embed_dim, embed_dim)
+        self.W2 = nn.Linear(embed_dim, embed_dim)
+        self.W3 = nn.Linear(embed_dim, embed_dim)
 
-        # Direction dimensions
-        conv_dim = 4              # Convolution dimension
-        num_maps = 4 * 2          # Number of local maps: 4 to represent obstacles and 4 to represent goals
-        self.num_dirs = num_dirs  # Number of actions
+        # Aggregation function for the GNN
+        self.agg_1 = nn.Linear(embed_dim, embed_dim)
+        self.agg_2 = nn.Linear(embed_dim, embed_dim)
+        self.agg_3 = nn.Linear(embed_dim, embed_dim)
+
+        # Parameters to regularize the GNN
+        r1 = torch.ones(1).cuda()
+        r2 = torch.ones(1).cuda()
+        r3 = torch.ones(1).cuda()
+        self.r1 = nn.Parameter(r1)
+        self.r2 = nn.Parameter(r2)
+        self.r3 = nn.Parameter(r3)
+
+        # Neural A* model
         self.patch_size = 16      # Size of local maps
         self.map_size = 64        # Size of global map
-
-        # Direction embeddings
-        self.path_prediction = nn.Sequential(               # Prediction layers
-            nn.Conv2d(num_maps, conv_dim, kernel_size=3, padding='same'),
-            nn.ReLU(),
-            nn.BatchNorm2d(conv_dim, affine=True),
-            nn.Conv2d(conv_dim, conv_dim, kernel_size=3, padding='same'),
-            nn.ReLU(),
-            nn.BatchNorm2d(conv_dim, affine=True),
-            nn.Flatten(),
-            nn.Linear(conv_dim * self.patch_size * self.patch_size // 2, embed_dim),
-            nn.ReLU(),
-            nn.BatchNorm1d(embed_dim, affine=True),
-            nn.Linear(embed_dim, self.num_dirs),
+        self.na_star = VanillaAstar(
+            
         )
 
         # Initialize fixed data (computed only during the first iteration)
@@ -222,18 +223,22 @@ class PN(nn.Module):
         self.fixed_data = self.precompute(state.obs)
 
         # Iterate until each environment from the batch reaches a terminal state
-        hidden_enc, hidden_dec = None, None
+        hidden = None
         while not done:
             
-            embeddings, hidden_enc = self.encoder(state, hidden_enc)
-            hidden_dec = (hidden_enc[0][-1], hidden_enc[1][-1]) if hidden_dec is None else hidden_dec
+            embeddings, hidden = self.encoder(state, hidden)
 
             # Predict actions and (log) probabilities for current state
-            action, log_prob, hidden_dec = self.step(state, embeddings, hidden_dec)
+            action, path, log_prob, hidden = self.step(state, embeddings, hidden)
 
             # Get reward and update state based on the action predicted
-            state = state.step(action)
+            state = state.step(action, path=path[..., 1:])
             reward, done = state.reward, state.done
+            
+            # Combine action (next node) with path
+            num_steps = path.shape[1]
+            action = action.reshape(-1, 1, 1).expand(action.shape[0], num_steps, 1)
+            action = torch.cat((action, path[..., 1:]), dim=-1)
 
             # Update info
             actions = actions + (action,)
@@ -245,10 +250,10 @@ class PN(nn.Module):
 
         # Return reward and log probabilities
         if test:
-            return total_reward, total_log_prob, torch.stack(actions, dim=1), success
+            return total_reward, total_log_prob, torch.cat(actions, dim=1), success
         return total_reward, total_log_prob
 
-    def step(self, state: Any, embeddings: torch.Tensor, hidden_dec: Tuple) -> Tuple[torch.Tensor, torch.Tensor, Tuple]:
+    def step(self, state: Any, embeddings: torch.Tensor, hidden: Tuple) -> Tuple[torch.Tensor, torch.Tensor, Tuple]:
         """
         Execute a step.
 
@@ -260,18 +265,13 @@ class PN(nn.Module):
         """
 
         # Transformer decoder
-        log_probs_node, selected_node, log_probs_direction, selected_direction, hidden_dec = self.decoder(state, embeddings, hidden_dec)
-
-        # Combine actions in one tensor
-        actions = torch.stack((selected_node, selected_direction), dim=1)
+        log_probs_node, selected_node, _, selected_direction, hidden = self.decoder(state, embeddings, hidden)
 
         # Combine log probabilities in one tensor
-        log_prob_node = self.select_log_probs(log_probs_node, selected_node)
-        log_prob_direction = self.select_log_probs(log_probs_direction, selected_direction)
-        log_prob = self.combine_log_probs(log_prob_node, log_prob_direction)
+        log_prob = self.select_log_probs(log_probs_node, selected_node)
 
         # Return actions and log probabilities
-        return actions, log_prob, hidden_dec
+        return selected_node, selected_direction, log_prob, hidden
 
     def encoder(self, state: Any, hidden: torch.Tensor = None) -> torch.Tensor:
         """
@@ -312,10 +312,10 @@ class PN(nn.Module):
             ).squeeze(0)
         
         # Calculate context embedding
-        context, hidden = self.get_context_embedding(node_embedding, *hidden)
+        context = self.get_context_embedding(node_embedding)
         
         # Return encoded data
-        return (context, current_node), hidden
+        return (context, current_node), None
 
     def precompute(self, obs: torch.Tensor | None = None) -> Fixed:
         """
@@ -339,7 +339,7 @@ class PN(nn.Module):
             obs_data = (None, None, None)
         return Fixed(*obs_data)
 
-    def decoder(self, state: Any, embeddings: torch.Tensor, hidden_dec: Tuple) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Tuple]:
+    def decoder(self, state: Any, embeddings: torch.Tensor, hidden: Tuple) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Tuple]:
         """
         Decoder for the model.
 
@@ -351,17 +351,17 @@ class PN(nn.Module):
         """
 
         # Predict log probabilities for each node
-        log_probs_node, hidden_dec = self.predict_node(state, embeddings, hidden_dec)
+        log_probs_node, hidden = self.predict_node(state, embeddings, hidden)
 
         # Select the indices of the next nodes in the sequences, result (batch_size) long
         selected_node = self.select_node(log_probs_node.exp(), state.get_mask_nodes())
 
         # Predict next action (direction from current position to next node to visit)
-        log_probs_direction = self.predict_direction(state, selected_node)
-        selected_direction = self.select_direction(log_probs_direction.exp())
+        selected_direction = self.predict_direction(state, selected_node)
+        log_probs_direction = 0
 
         # Return actions and log probabilities
-        return log_probs_node, selected_node, log_probs_direction, selected_direction, hidden_dec
+        return log_probs_node, selected_node, log_probs_direction, selected_direction, hidden
     
     def get_node_embedding(self, state):
         
@@ -392,11 +392,19 @@ class PN(nn.Module):
         ).view(num_regions, batch_size, -1)
         return node_embedding
     
-    def get_context_embedding(self, node_embedding, h, c):
-        context, hidden_enc = self.lstm_enc(node_embedding, (h, c))
-        return context, hidden_enc
+    def get_context_embedding(self, node_embedding):
+        
+        # Dimensions
+        num_regions, batch_size, embed_dim = node_embedding.shape
+        node_embedding = node_embedding.view(-1, embed_dim)
+        
+        # GNN
+        context = self.r1 * self.W1(node_embedding) + (1 - self.r1) * torch.nn.functional.relu(self.agg_1(node_embedding))
+        context = self.r2 * self.W2(context) + (1 - self.r2) * torch.nn.functional.relu(self.agg_2(context))
+        context = self.r3 * self.W3(context) + (1 - self.r3) * torch.nn.functional.relu(self.agg_3(context))
+        return context.view(num_regions, batch_size, -1)  # output: (sourceL x batch_size x embedding_dim)
 
-    def predict_node(self, state: Any, embeddings: torch.Tensor, hidden_dec: Tuple):
+    def predict_node(self, state: Any, embeddings: torch.Tensor, hidden: Tuple):
         """
         Predict log probabilities for each node.
 
@@ -410,7 +418,7 @@ class PN(nn.Module):
         context, current_node = embeddings
         
         # LSTM
-        h, c = self.lstm_dec(current_node, hidden_dec)
+        h, c = self.lstm(current_node, hidden)
         
         # Attention model
         for _ in range(self.num_glimpses):
@@ -445,7 +453,6 @@ class PN(nn.Module):
         Returns:
             torch.Tensor: Selected indices.
         """
-        assert not probs.isnan().data.any(), "Predicted probs are NaN!"
 
         # ArgMax (Exploitation)
         if self.decode_type == "greedy":
@@ -476,49 +483,192 @@ class PN(nn.Module):
             next_node (torch.Tensor): Next node.
 
         Returns:
-            torch.Tensor: Log probabilities.
+            torch.Tensor: Predicted directions.
         """
-        batch_ids = torch.arange(next_node.shape[0], dtype=torch.int64, device=next_node.device)
+        batch_size = next_node.shape[0]
+        batch_ids = torch.arange(batch_size, dtype=torch.int64, device=next_node.device)
+        obs_map = self.obs2maps(state.obs)
+        
+        # Get current position
+        start = state.position
+        start_map = self.node2map(start, obs_map, batch_ids)
 
         # Get next selected goal
         goal = state.get_regions()[batch_ids, next_node]
+        goal_map = self.node2map(goal, obs_map, batch_ids)
+        
+        # Ensure nodes do not fall within obstacle location after rescale
+        obs_map[start_map == 1] = 1
+        obs_map[goal_map == 1] = 1
 
-        # Get local maps
-        maps = create_local_maps(
-            state.position, self.fixed_data.obs_map, self.fixed_data.obs_grid, goal, self.patch_size, self.map_size
-        )
-
-        # Apply prediction layers
-        policy = self.path_prediction(maps)
-
-        # Ban prohibited directions
-        policy[state.get_mask_dirs()] = -math.inf
-
-        # Return normalized (softmax) log probabilities
-        log_probs = torch.log_softmax(policy, dim=-1)
-        return log_probs
-
-    def select_direction(self, probs: torch.Tensor) -> torch.Tensor:
+        # Predict path with NA*
+        try:
+            predicted_map = self.na_star(
+                obs_map[:, None].contiguous(),
+                start_map[:, None].contiguous(),
+                goal_map[:, None].contiguous()
+            ).paths[:, 0]
+            selected_direction = self.map2dirs(predicted_map, start, goal)
+        except:
+            path = torch.stack((start, goal), dim=1)
+            selected_direction = torch.cat((
+                torch.zeros_like(path[..., 0, None]), path
+            ), dim=-1)
+        return selected_direction
+    
+    def obs2maps(self, obs: torch.Tensor) -> torch.Tensor:
         """
-        Select direction.
+        Create obstacles' map.
 
         Args:
-            probs (torch.Tensor): Probabilities.
+            obs (torch.Tensor): obstacles.
 
         Returns:
-            torch.Tensor: Selected direction.
+            torch.Tensor: obstacles' map.
         """
+        batch_size, num_obs, _ = obs.shape
+        x, y = torch.meshgrid(
+            torch.linspace(0, 1, self.map_size, device=obs.device),
+            torch.linspace(0, 1, self.map_size, device=obs.device),
+            indexing="ij"
+        )
+        xy = torch.stack((x, y), dim=-1).expand([batch_size, num_obs, self.map_size, self.map_size, 2])
 
-        # ArgMax (Exploitation)
-        if self.decode_type == "greedy":
-            _, action = probs.max(dim=1)
+        # Calculate distance from each point of the meshgrid to each obstacle center
+        distances = (xy - obs[..., None, None, :2]).norm(2, dim=-1)
 
-        # Sample (Exploration)
-        elif self.decode_type == "sampling":
-            action = probs.multinomial(num_samples=1).squeeze(dim=1)
-        else:
-            assert False, "Unknown decode type"
-        return action
+        # Create the masks by comparing distances with radius
+        return (distances > obs[..., None, None, 2] + 0.02).all(dim=1).permute(0, 2, 1).float()
+    
+    def node2map(self, node: torch.Tensor, obs_map: torch.Tensor, batch_ids: torch.Tensor) -> torch.Tensor:
+        """
+        Create a map for either the start or goal nodes as required by Neural A*.
+
+        Args:
+            node (torch.Tensor): coordinates of the start or goal node.
+            obs_map (torch.Tensor): obstacles' map.
+            batch_ids (torch.Tensor): arange of batch ids.
+
+        Returns:
+            torch.Tensor: map for start/goal node.
+        """
+        node_x = (node[..., 0] * self.map_size).type(torch.int64)
+        node_x = torch.clamp(node_x, 0, self.map_size - 1).long()
+        node_y = (node[..., 1] * self.map_size).type(torch.int64)
+        node_y = torch.clamp(node_y, 0, self.map_size - 1).long()
+        node_map = torch.zeros_like(obs_map)
+        node_map[batch_ids, node_y, node_x] = 1
+        return node_map
+    
+    def map2dirs(self, predicted_map: torch.Tensor, start: torch.Tensor, goal: torch.Tensor, max_iters: int = 300) -> torch.Tensor:
+        """
+        Convert map with path predicted by Neural A* into a sequence of coordinates.
+
+        Args:
+            predicted_map (torch.Tensor): map with the predicted path predicted by Neural A*.
+            start (torch.Tensor): coordinates of starting node.
+            goal (torch.Tensor): coordinates of goal node.
+            max_iters (int, optional): max number of iterations. Defaults to 300.
+
+        Returns:
+            torch.Tensor: _description_
+        """
+        pos = start.clone()
+        
+        # Initialize mask that allows different path lengths across elements from the same batch
+        not_done = torch.ones_like(pos[:, 0]).bool()
+        
+        # Add starting node at the beginning of the path
+        path = [
+            torch.cat((torch.zeros_like(pos[:, 0, None]).long(), start), dim=-1)
+        ]
+        
+        # Sequentially decode path
+        i = 0
+        while not_done.any().item() and i < max_iters:
+            dirs = -torch.ones_like(pos[:, 0]).long()
+            
+            # Get next position from current node
+            p, d, predicted_map = self.max_adjacent(predicted_map, pos)
+            
+            # Save next position if not done yet
+            pos[not_done], dirs[not_done] = p[not_done], d[not_done]
+            path.append(torch.cat((dirs[:, None], pos), dim=-1))
+            
+            # Check if done
+            not_done = ~self.check_coords(pos, goal)
+            i += 1
+        
+        # Add goal node at the end of the path
+        path.append(
+            torch.cat((-torch.ones_like(pos[:, 0, None]).long(), goal), dim=-1)
+        )
+        
+        # Return path as tensor
+        return torch.stack(path, dim=1)
+        
+    @ staticmethod
+    def max_adjacent(maps: torch.Tensor, coords: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        From given position (coords) and map with path predicted by Neural A*, get the next adjacent position of the path.
+
+        Args:
+            maps (torch.Tensor): map with the predicted path predicted by Neural A*.
+            coords (torch.Tensor): current position.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: next position, next direction, updated map (with current position removed).
+        """
+        
+        # Dimensions
+        batch_size, height, width = maps.size()
+        
+        # Get coordinates in map reference system
+        x = (coords[..., 0] * width).clamp(0, width - 1)
+        y = (coords[..., 1] * height).clamp(0, height - 1)
+        
+        # Set current coordinates to zero in the map
+        maps[torch.arange(batch_size).to(maps.device), y.long(), x.long()] = 0
+        
+        # Generate indices for adjacent positions including diagonals
+        row_offsets = torch.tensor([0, 1, 1, 1, 0, -1, -1, -1], device=maps.device)
+        col_offsets = torch.tensor([1, 1, 0, -1, -1, -1, 0, 1], device=maps.device)
+        row_idx = (
+            y[:, None].expand(batch_size, len(row_offsets)) + \
+            row_offsets[None].expand(batch_size, len(row_offsets))
+        ).clamp(0, height - 1).long()
+        col_idx = (
+            x[:, None].expand(batch_size, len(col_offsets)) + \
+            col_offsets[None].expand(batch_size, len(col_offsets))
+        ).clamp(0, width - 1).long()
+        
+        # Get values of adjacent positions
+        batch_idx = torch.arange(batch_size)[:, None].expand(batch_size, 8).to(maps.device)
+        adjacent_values = maps[batch_idx, row_idx, col_idx]
+        
+        # Find maximum value (directions)
+        _, dirs = torch.max(adjacent_values.view(batch_size, -1), dim=-1)
+        
+        # Gather coordinates of maximum values
+        next_coords = torch.stack((
+            col_idx.gather(1, dirs[:, None])[:, 0] / height,
+            row_idx.gather(1, dirs[:, None])[:, 0] / width,
+        ), dim=-1)
+        return next_coords, dirs, maps
+    
+    @staticmethod
+    def check_coords(coords1: torch.Tensor, coords2: torch.Tensor) -> torch.Tensor:
+        """
+        Check if 2 positions are the same (or very close to each other).
+
+        Args:
+            coords1 (torch.Tensor): first position.
+            coords2 (torch.Tensor): second position.
+
+        Returns:
+            torch.Tensor: boolean indicating if the positions are the same or not.
+        """
+        return torch.linalg.norm(coords1 - coords2, dim=-1) < 0.02
 
     @staticmethod
     def select_log_probs(log_probs: torch.Tensor, selected: torch.Tensor) -> torch.Tensor:
@@ -535,17 +685,3 @@ class PN(nn.Module):
         log_prob = log_probs.gather(1, selected[..., None])[..., 0]
         assert (log_prob > -1000).data.all(), "Log probabilities should not be -inf, check sampling procedure!"
         return log_prob
-
-    @staticmethod
-    def combine_log_probs(log_probs_node: torch.Tensor, log_probs_direction: torch.Tensor) -> torch.Tensor:
-        """
-        Combine log probabilities.
-
-        Args:
-            log_probs_node (torch.Tensor): Log probabilities for nodes.
-            log_probs_direction (torch.Tensor): Log probabilities for directions.
-
-        Returns:
-            torch.Tensor: Combined log probabilities.
-        """
-        return (log_probs_node + log_probs_direction) / 2

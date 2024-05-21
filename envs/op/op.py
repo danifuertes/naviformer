@@ -291,7 +291,7 @@ class OpState(NamedTuple):
             torch.Tensor: Remaining length for each element of the batch.
         """
         return self.max_length - self.length
-        
+
     @staticmethod
     def get_path_length(path):
         # Compute mask for dummy values

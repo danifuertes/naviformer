@@ -385,11 +385,17 @@ def print_op_results(results: tuple) -> None:
     print(f"\tRate of success: {np.mean(success):.4f} +- {2 * np.std(success) / np.sqrt(len(success)):.4f}")
 
     # Print number of nodes visited
-    node_rate = np.array(visits) / (np.mean(num_nodes) / 2)  # Max length is fixed to allow visiting half of the nodes
-    print("\nNUMBER OF NODES VISITED")
-    print(f"\tAverage number of nodes visited: {np.mean(visits):.4f} +- {2 * np.std(visits) / np.sqrt(len(visits)):.4f}")
-    print(f"\tMax number of nodes visited: {np.max(visits):.0f} | Min number of nodes visited: {np.min(visits):.0f}")
-    print(f"\tRate of nodes visited: {np.mean(node_rate):.4f} +- {2 * np.std(node_rate) / np.sqrt(len(node_rate)):.4f}")
+    if len(visits) == 0:
+        print("\nNUMBER OF NODES VISITED")
+        print(f"\tAverage number of nodes visited: {0:.4f} +- {0:.4f}")
+        print(f"\tMax number of nodes visited: {0:.0f} | Min number of nodes visited: {0:.0f}")
+        print(f"\tRate of nodes visited: {0:.4f} +- {0:.4f}")
+    else:
+        node_rate = np.array(visits) / (np.mean(num_nodes) / 2)  # Max length is fixed to allow visiting half of the nodes
+        print("\nNUMBER OF NODES VISITED")
+        print(f"\tAverage number of nodes visited: {np.mean(visits):.4f} +- {2 * np.std(visits) / np.sqrt(len(visits)):.4f}")
+        print(f"\tMax number of nodes visited: {np.max(visits):.0f} | Min number of nodes visited: {np.min(visits):.0f}")
+        print(f"\tRate of nodes visited: {np.mean(node_rate):.4f} +- {2 * np.std(node_rate) / np.sqrt(len(node_rate)):.4f}")
 
     # Print serial duration
     mean_time, ci_time = np.mean(duration), 2 * np.std(duration) / np.sqrt(len(duration))

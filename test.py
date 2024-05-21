@@ -69,44 +69,48 @@ def main(opts):
 
     # Test on each dataset
     for dataset_path in opts.datasets:
-        results = [[] for _ in range(5)]
 
         # Output filename to save results
         out_file, out_dir = get_results_file(opts, dataset_path, problem_name, model_name)
         os.makedirs(out_dir, exist_ok=True)
+        
+        if os.path.isfile(check_extension(out_file)) and not opts.f:
+            results = load_dataset(out_file)
+        else:
+            results = [[] for _ in range(5)]
 
-        # Load test env
-        print(f"Test dataset {dataset_path}:")
-        test_env = problem(
-            batch_size=opts.batch_size,
-            num_workers=opts.num_workers,
-            device=device,
-            filename=dataset_path,
-            num_dirs=num_dirs,
-            eps=opts.eps,
-            desc='Load data'
-        )
+            # Load test env
+            print(f"Test dataset {dataset_path}:")
+            test_env = problem(
+                batch_size=opts.batch_size,
+                num_workers=opts.num_workers,
+                device=device,
+                filename=dataset_path,
+                num_dirs=num_dirs,
+                eps=opts.eps,
+                desc='Load data'
+            )
 
-        # Get batches from dataset
-        for batch in tqdm(test_env.dataloader, desc='Testing'.ljust(15)):
-            batch = move_to(batch, device=device)
+            # Get batches from dataset
+            for batch in tqdm(test_env.dataloader, desc='Testing'.ljust(15)):
+                batch = move_to(batch, device=device)
 
-            # Run episode
-            with torch.no_grad():
-                start = time.time()
-                rewards, _, actions, success = model(batch, test_env)
-                duration = time.time() - start
+                # Run episode
+                with torch.no_grad():
+                    start = time.time()
+                    rewards, _, actions, success = model(batch, test_env)
+                    duration = time.time() - start
 
-            # Collect results
-            results[0] = [*results[0], *rewards.tolist()]
-            results[1] = [*results[1], *actions.tolist()]
-            results[2] = [*results[2], *success.tolist()]
-            results[3] = [*results[3], duration]
-            results[4] = [*results[4], *(batch['loc'][..., 0] > 0).sum(dim=1).detach().cpu().numpy().tolist()]
+                # Collect results
+                results[0] = [*results[0], *rewards.tolist()]
+                results[1] = [*results[1], *actions.tolist()]
+                results[2] = [*results[2], *success.tolist()]
+                results[3] = [*results[3], duration]
+                results[4] = [*results[4], *(batch['loc'][..., 0] > 0).sum(dim=1).detach().cpu().numpy().tolist()]
 
-        # Add parallelism info to results
-        parallelism = opts.batch_size
-        results.append(parallelism)
+            # Add parallelism info to results
+            parallelism = opts.batch_size
+            results.append(parallelism)
 
         # Print results
         print_results(problem_name)(results)
