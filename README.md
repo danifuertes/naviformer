@@ -6,7 +6,7 @@
 
 This repository is the official implementation of the following paper:
 
-> Daniel Fuertes, Andrea Cavallaro, Carlos R. del-Blanco, Fernando Jaureguizar, Narciso García, "NaviFormer: A Deep Reinforcement Learning Transformer-like Model to Holistically Solve the Navigation Problem", submitted to NeurIPS, 2024.
+> "NaviFormer: A Deep Reinforcement Learning Transformer-like Model to Holistically Solve the Navigation Problem", submitted to NeurIPS, 2024.
 
 If you find this repository useful for your work, please cite our paper:
 
