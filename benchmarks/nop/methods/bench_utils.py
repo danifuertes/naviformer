@@ -13,7 +13,6 @@ from multiprocessing.dummy import Pool as ThreadPool
 
 from .a_star import AStar
 from .d_star import DStar
-from .d_star_lite import DStarLite
 from .na_star import NeuralAStar
 from .ortools import solve_op_ortools
 from .genetic import solve_op_genetic

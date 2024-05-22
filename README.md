@@ -34,7 +34,7 @@ cd ../../..
 ```
 
 ## Reproducibility
-To reproduce the results of the paper, please download and unzip the datasets and pretrained weights from [here](https://drive.google.com/drive/folders/1OVHFOre7uWWv21HmNwd64w1kLM2uESrY?usp=sharing). Place the datasets' folder (`data`) and the pretrained weights' folder (`pretrained`) in the working directory and run the following scripts:
+To reproduce the results of the paper, please download and unzip the datasets and pretrained weights from [this anonymous link](https://drive.google.com/drive/folders/1OVHFOre7uWWv21HmNwd64w1kLM2uESrY?usp=sharing). Place the datasets' folder (`data`) and the pretrained weights' folder (`pretrained`) in the working directory and run the following scripts:
 
 ```bash
 source replicate_results.sh
