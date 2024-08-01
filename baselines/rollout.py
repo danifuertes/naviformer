@@ -52,7 +52,9 @@ class RolloutBaseline(BasicBaseline):
             num_depots=self.opts.num_depots,
             max_length=self.opts.max_length,
             max_nodes=self.opts.max_nodes,
-            max_obs=self.opts.max_obs,
+            num_obs=self.opts.num_obs,
+            rad_obs=self.opts.rad_obs,
+            num_dirs=self.opts.num_dirs,
             desc='Baseline data'
         ) if env is None else env
 
