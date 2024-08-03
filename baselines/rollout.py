@@ -5,7 +5,7 @@ from typing import Any, Tuple
 from scipy.stats import ttest_rel
 
 from .basic import BasicBaseline
-from utils import rollout, get_inner_model
+from utils import rollout, set_decode_type, get_inner_model
 
 
 class RolloutBaseline(BasicBaseline):
@@ -75,10 +75,12 @@ class RolloutBaseline(BasicBaseline):
         Returns:
             tuple: Tuple containing the baseline value and the loss.
         """
+        # set_decode_type(self.model, "greedy")
+        # self.model.eval()
 
         # Use volatile mode for efficient inference (single batch so we do not use rollout function)
         with torch.no_grad():
-            v, _ = self.model(x, e)
+            v, _ = self.model(x, e, test=False)
 
         # There is no loss
         return v, 0
@@ -93,7 +95,7 @@ class RolloutBaseline(BasicBaseline):
         """
 
         # Evaluate candidate model on evaluation dataset
-        candidate_vals = rollout(model, self.env, self.opts, desc='Baseline').cpu().numpy()
+        candidate_vals = rollout(model, self.env, desc='Baseline').cpu().numpy()
         candidate_mean = candidate_vals.mean()
         print(f"Epoch {epoch} candidate mean {candidate_mean}, baseline epoch {self.epoch}, "
               f"mean {self.mean}, difference {candidate_mean - self.mean}")

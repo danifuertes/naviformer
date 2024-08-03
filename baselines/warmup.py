@@ -36,7 +36,7 @@ class WarmupBaseline(BasicBaseline):
         Returns:
             tuple: Tuple containing the baseline value and the loss.
         """
-        if self.alpha == 1:
+        if self.alpha >= 1:
             return self.baseline.eval(x, c, e)
         if self.alpha == 0:
             return self.warmup_baseline.eval(x, c, e)
