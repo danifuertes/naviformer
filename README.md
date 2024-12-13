@@ -2,11 +2,10 @@
 [![](images/python.svg)](https://www.python.org)
 [![](images/framework.svg)](https://pytorch.org)
 [![](images/license.svg)](LICENSE)
-[![](images/publication.svg)](https://neurips.cc)
 
 This repository is the official implementation of the following paper:
 
-> "NaviFormer: A Deep Reinforcement Learning Transformer-like Model to Holistically Solve the Navigation Problem", submitted to NeurIPS, 2024.
+> "NaviFormer: A Deep Reinforcement Learning Transformer-like Model to Holistically Solve the Navigation Problem", under review.
 
 If you find this repository useful for your work, please cite our paper:
 

@@ -25,8 +25,8 @@ class NeuralAStar:
     def create_obs_map(self, obs, scale, *args, **kwargs):
         obs_map = torch.ones((self.batch_size, ) + self.map_size, device=self.device)
         grid = torch.stack(
-            torch.meshgrid(torch.arange(self.map_size[0]), torch.arange(self.map_size[1])), axis=-1
-        )
+            torch.meshgrid(torch.arange(self.map_size[0]), torch.arange(self.map_size[1]), indexing="ij"), axis=-1
+        ).to(self.device)
         obs = torch.tensor(obs).to(self.device) / scale
         obs = torch.index_select(obs, 1, torch.LongTensor([1, 0, 2]).to(self.device))
         for ob in obs:
@@ -53,14 +53,19 @@ class NeuralAStar:
         start_map = self.node2map(start, self.obs_map, batch_ids)
         goal_map = self.node2map(goal, self.obs_map, batch_ids)
         
+        # Ensure nodes do not fall within obstacle location after rescale
+        self.obs_map[start_map == 1] = 1
+        self.obs_map[goal_map == 1] = 1
+        
         try:
             # self.check_error(self.obs_map, start)  # For some reason, NAStar fails if there are obstacles adjacent to start/goal positions
             # self.check_error(self.obs_map, goal)
-            predicted_map = self.model(
-                self.obs_map[:, None].contiguous(),
-                start_map[:, None].contiguous(),
-                goal_map[:, None].contiguous()
-            ).paths[:, 0]
+            with torch.no_grad():
+                predicted_map = self.model(
+                    self.obs_map[:, None].contiguous(),
+                    start_map[:, None].contiguous(),
+                    goal_map[:, None].contiguous()
+                ).paths[:, 0]
             path = self.map2dirs(predicted_map, start, goal)
             if predicted_map.sum() < 1:
                 raise IndexError

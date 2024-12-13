@@ -8,8 +8,9 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 from typing import Tuple, Any
-from multiprocessing import Pool
-from multiprocessing.dummy import Pool as ThreadPool
+# from multiprocessing import Pool
+# from multiprocessing.dummy import Pool as ThreadPool
+from torch.multiprocessing import Pool
 
 from .a_star import AStar
 from .d_star import DStar
@@ -106,7 +107,9 @@ def multiprocessing(
     ds = dataset[offset:(offset + opts.n if opts.n is not None else len(dataset))]
 
     # Use ThreadPool to calculate results
-    pool_cls = (Pool if use_multiprocessing and num_cpus > 1 else ThreadPool)
+    spawn = 'spawn' if opts.use_cuda else 'fork'
+    torch.multiprocessing.set_start_method('spawn')
+    pool_cls = Pool # (Pool if use_multiprocessing and num_cpus > 1 else ThreadPool)
     with pool_cls(num_cpus) as pool:
         results = list(tqdm(pool.imap_unordered(
             func,
@@ -294,7 +297,10 @@ def solve_nop(directory: str | None,
             rx, ry, success_path = planner.planning(*start, *goal_coords, limit=max_length)
             if path_planner == 'd_star':
                 planner.set_obs_map()
-            steps = np.concatenate(([start], np.stack((rx, ry), axis=1), [goal_coords]), axis=0)
+            if isinstance(rx, torch.Tensor):
+                steps = np.concatenate(([start], np.stack((rx.cpu(), ry.cpu()), axis=1), [goal_coords]), axis=0)
+            else:
+                steps = np.concatenate(([start], np.stack((rx, ry), axis=1), [goal_coords]), axis=0)
             error = len(rx) == 1 and np.linalg.norm(start - goal_coords) > planner.step_size * 1.5
             start = np.array(goal_coords)
 
@@ -318,7 +324,9 @@ def solve_nop(directory: str | None,
 
         # Save results
         nav = nav.tolist()
-        # cost, nav, success, duration, num_nodes = 0, [[0]], False, 0, 0
         if directory is not None:
             save_dataset((cost, nav, success, duration, num_nodes), problem_filename)
+        
+        # cost, nav, success, duration, num_nodes = 0, [[0]], False, 0, 0
+        # cost, nav, success, duration, num_nodes = 0, [depot_ini, depot_end], False, 0, len(loc)
     return cost, nav, success, duration, num_nodes

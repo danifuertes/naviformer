@@ -21,7 +21,7 @@ class AStar:
     def create_obs_map(self, obs, scale, *args, **kwargs):
         obs_map = torch.ones((self.batch_size, ) + self.map_size, device=self.device)
         grid = torch.stack(
-            torch.meshgrid(torch.arange(self.map_size[0]), torch.arange(self.map_size[1])), axis=-1
+            torch.meshgrid(torch.arange(self.map_size[0]), torch.arange(self.map_size[1]), indexing="ij"), axis=-1
         )
         obs = torch.tensor(obs).to(self.device) / scale
         obs = torch.index_select(obs, 1, torch.LongTensor([1, 0, 2]).to(self.device))
