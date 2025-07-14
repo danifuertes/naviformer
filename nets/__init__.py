@@ -24,8 +24,7 @@ MODELS = {
         'gpn_na_star': GPNNAStar,
         'naviformer_a_star': NaviFormerAStar,
         'naviformer_na_star': NaviFormerNAStar,
-        'naviformer_na_star': NaviFormerNAStar,
-        'naviformer_na_star': NaviFormerNAStar,
+        'naviformer_transpath': NaviFormerTransPath,
     }
 }
 FANCY_NAME = {
@@ -39,6 +38,7 @@ FANCY_NAME = {
     'gpn_na_star': 'GPNNAStar',
     'naviformer_a_star': 'NaviFormerAStar',
     'naviformer_na_star': 'NaviFormerNAStar',
+    'naviformer_transpath': 'NaviFormerTransPath',
     'pn': 'PN',
     'gpn': 'GPN',
 }

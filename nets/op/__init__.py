@@ -7,3 +7,4 @@ from .gpn_na_star import GPNNAStar
 from .naviformer2step import NaviFormer2Step
 from .naviformer_a_star import NaviFormerAStar
 from .naviformer_na_star import NaviFormerNAStar
+from .naviformer_transpath import NaviFormerTransPath
