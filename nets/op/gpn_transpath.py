@@ -6,103 +6,178 @@ from ..modules import *
 from ..modules.transpath.run import load_transpath_models, plan_path
 
 
-class NaviFormerTransPath(nn.Module):
-    """NaviFormer neural network with TransPath"""
+class Fixed(NamedTuple):
+    """
+    Context for decoder that is fixed during decoding so can be precomputed/cached
+    This class allows for efficient indexing of multiple Tensors at once
+    """
+    obs_map: torch.Tensor
+    obs_grid: torch.Tensor
+
+    def __getitem__(self, key: slice | torch.Tensor) -> 'Fixed':
+        """
+        Get item based on the key.
+
+        Args:
+            key (slice or torch.Tensor): The index or slice.
+
+        Returns:
+            Fixed: The sliced named tuple.
+        """
+        assert torch.is_tensor(key) or isinstance(key, slice)
+        return Fixed(
+            obs_map=self.obs_map[key],
+            obs_grid=self.obs_grid[key],
+        )
+
+
+class Encoder(nn.Module):
+    """Maps a graph represented as an input sequence to a hidden vector"""
+
+    def __init__(self, input_dim, hidden_dim):
+        super(Encoder, self).__init__()
+        self.hidden_dim = hidden_dim
+        self.lstm = nn.LSTM(input_dim, hidden_dim)
+        self.init_hx, self.init_cx = self.init_hidden(hidden_dim)
+
+    def forward(self, x, hidden):
+        self.lstm.flatten_parameters()
+        output, hidden = self.lstm(x, hidden)
+        return output, hidden
+
+    def init_hidden(self, hidden_dim):
+        """Trainable initial hidden state"""
+        std = 1. / math.sqrt(hidden_dim)
+        enc_init_hx = nn.Parameter(torch.FloatTensor(hidden_dim))
+        enc_init_hx.data.uniform_(-std, std)
+
+        enc_init_cx = nn.Parameter(torch.FloatTensor(hidden_dim))
+        enc_init_cx.data.uniform_(-std, std)
+        return enc_init_hx, enc_init_cx
+
+
+class Attention(nn.Module):
+    """A generic attention module for a decoder in seq2seq"""
+
+    def __init__(self, dim, use_tanh=False, C=10.):
+        super(Attention, self).__init__()
+        self.use_tanh = use_tanh
+        self.project_query = nn.Linear(dim, dim)
+        self.project_ref = nn.Conv1d(dim, dim, 1, 1)
+        self.C = C  # tanh exploration
+        self.tanh = nn.Tanh()
+
+        self.v = nn.Parameter(torch.FloatTensor(dim))
+        self.v.data.uniform_(-(1. / math.sqrt(dim)), 1. / math.sqrt(dim))
+
+    def forward(self, query, ref):
+        """
+        Args:
+            query: is the hidden state of the decoder at the current
+                time step. batch x dim
+            ref: the set of hidden states from the encoder.
+                sourceL x batch x hidden_dim
+        """
+        # ref is now [batch_size x hidden_dim x sourceL]
+        ref = ref.permute(1, 2, 0)
+        q = self.project_query(query).unsqueeze(2)  # batch x dim x 1
+        e = self.project_ref(ref)  # batch_size x hidden_dim x sourceL
+        # expand the query by sourceL
+        # batch x dim x sourceL
+        expanded_q = q.repeat(1, 1, e.size(2))
+        # batch x 1 x hidden_dim
+        v_view = self.v.unsqueeze(0).expand(
+            expanded_q.size(0), len(self.v)).unsqueeze(1)
+        # [batch_size x 1 x hidden_dim] * [batch_size x hidden_dim x sourceL]
+        u = torch.bmm(v_view, self.tanh(expanded_q + e)).squeeze(1)
+        if self.use_tanh:
+            logits = self.C * self.tanh(u)
+        else:
+            logits = u
+        return e, logits
+
+
+class GPNTransPath(nn.Module):
+    """Graph Pointer network"""
 
     def __init__(self,
                  embed_dim: int = 128,
-                 combined_mha: bool = True,
-                 two_step: any = None,
+                 num_dirs: int = 4,
                  num_obs: tuple = (0, 0),
                  num_heads: int = 8,
-                 num_blocks: int = 2,
                  tanh_clipping: float = 10.,
-                 normalization: str = 'batch',
+                 mask_inner=True,
+                 mask_logits=True,
                  device: str = 'cpu',
                  **kwargs) -> None:
         """
-        Initialize NaviFormer model.
+        Initialize Pointer network model.
 
         Args:
             embed_dim (int): Dimension of embeddings.
             num_dirs (int): Number of the directions the agent can choose to move.
-            combined_mha (bool): Whether to use combined/standard MHA encoder.
-            two_step (any): Pre-trained route planner for 2-step navigation planner.
             num_obs (tuple): (Minimum, Maximum) number of obstacles.
             num_heads (int): Number of heads for MHA layers.
-            num_blocks (int): Number of encoding blocks.
             tanh_clipping (float): Clip tanh values.
             normalization (str): Type of normalization.
         """
-        super(NaviFormerTransPath, self).__init__()
+        super(GPNTransPath, self).__init__()
         assert embed_dim % num_heads == 0, f"Embedding dimension should be dividable by number of heads, " \
                                            f"found embed_dim={embed_dim} and num_heads={num_heads}"
 
-        # Problem parameters
-        self.num_obs = num_obs                           # (Minimum, Maximum) number of obstacles
-        self.agent_id = 0                                # Agent ID (for decentralized multiagent problem)
-
         # Dimensions
         self.embed_dim = embed_dim                       # Dimension of embeddings
-
-        # Encoder parameters
-        self.combined_mha = combined_mha                 # Use combined/standard MHA encoder
-        self.num_heads = num_heads                       # Number of heads for MHA layers
-        self.num_blocks = num_blocks                     # Number of encoding blocks
+        self.num_obs = num_obs                           # (Minimum, Maximum) number of obstacles
 
         # Decoder parameters
         self.temp = 1.0                                  # SoftMax temperature parameter
         self.decode_type = None                          # Greedy or sampling
         self.tanh_clipping = tanh_clipping               # Clip tanh values
 
-        # Last node embedding (embed_dim) + remaining length and current position (3) + number of obstacles (max_obs)
-        step_context_dim = embed_dim + 3 + num_obs[1]
+        # Node dimension: x, y, prize, max_length
+        self.node_dim = 4
+        
+        # Initial embedding projection
+        std = 1. / math.sqrt(embed_dim)
+        self.node_embed = nn.Parameter(torch.FloatTensor(self.node_dim, embed_dim))
+        self.node_embed.data.uniform_(-std, std)
 
-        # Node dimension: x, y, prize (Nav_OP)
-        node_dim = 3
+        # Placeholder for the starting node
+        self.init_node_placeholder = nn.Parameter(torch.FloatTensor(embed_dim))
+        self.init_node_placeholder.data.uniform_(-std, std)
 
-        # Pre-trained (2-step) Transformer route planner
-        if two_step is not None:
-            self.base_route_model = two_step
-            self.base_route_model.set_decode_type("greedy", temp=self.temp)
-            print(f"Loaded base route planner model for 2-step NaviFormer")
-            print('Freezing base route planner model layers for 2-step NaviFormer')
-            for name, p in self.base_route_model.named_parameters():
-                p.requires_grad = False
-            self.two_step = True
-        else:
-            self.two_step = False
+        # Decoder LSTM
+        self.lstm = nn.LSTMCell(embed_dim, embed_dim)
 
-            # Special embedding projection for depot node
-            self.init_embed_depot = nn.Linear(2, embed_dim)
+        # Attention
+        self.pointer = Attention(embed_dim, use_tanh=tanh_clipping > 0, C=tanh_clipping)
+        self.glimpse = Attention(embed_dim, use_tanh=False)
+        self.softmax = nn.Softmax(dim=1)
+        self.num_glimpses = 1
+        self.tanh_exploration = tanh_clipping
 
-            # Initial embedding
-            self.init_embed = nn.Linear(node_dim, embed_dim)
+        # Mask
+        self.mask_glimpses = mask_inner
+        self.mask_logits = mask_logits
+        self.decode_type = None  # Needs to be set explicitly before use
+        
+        # Weights for the GNN
+        self.W1 = nn.Linear(embed_dim, embed_dim)
+        self.W2 = nn.Linear(embed_dim, embed_dim)
+        self.W3 = nn.Linear(embed_dim, embed_dim)
 
-            # Encoder embedding
-            self.embedder = MHAEncoder(  # Node to node to obstacle attention
-                num_heads=num_heads,
-                embed_dim=embed_dim,
-                node_dim2=3 if num_obs[1] else None,  # Obstacles (circles): x_center, y_center, radius
-                num_blocks=num_blocks,
-                normalization=normalization,
-                combined=combined_mha
-            )
+        # Aggregation function for the GNN
+        self.agg_1 = nn.Linear(embed_dim, embed_dim)
+        self.agg_2 = nn.Linear(embed_dim, embed_dim)
+        self.agg_3 = nn.Linear(embed_dim, embed_dim)
 
-        # Project graph embedding to get decoder embeddings for MHA: key, value, key_logit (so 3 * embed_dim)
-        self.project_graph = nn.Linear(embed_dim, 3 * embed_dim, bias=False)
-
-        # Project averaged graph embedding (across nodes) for state embedding
-        self.project_graph_mean = nn.Linear(embed_dim, embed_dim, bias=False)
-
-        # Project averaged obstacle embedding (across obstacles) for state embedding
-        self.project_obs_mean = nn.Linear(embed_dim, embed_dim, bias=False)
-
-        # Project state embedding
-        self.project_state = nn.Linear(step_context_dim, embed_dim, bias=False)
-
-        # Projection for the result of inner MHA (num_heads * val_dim == embed_dim, so input is embed_dim)
-        self.project_mha = nn.Linear(embed_dim, embed_dim, bias=False)
+        # Parameters to regularize the GNN
+        r1 = torch.ones(1).cuda()
+        r2 = torch.ones(1).cuda()
+        r3 = torch.ones(1).cuda()
+        self.r1 = nn.Parameter(r1)
+        self.r2 = nn.Parameter(r2)
+        self.r3 = nn.Parameter(r3)
 
         # Neural A* model
         self.patch_size = 16      # Size of local maps
@@ -145,14 +220,16 @@ class NaviFormerTransPath(nn.Module):
         done, total_reward, total_log_prob, actions = False, 0, 0, tuple()
 
         # Calculate graph embeddings during the first iteration
-        embeddings = self.encoder(state)  # Transformer encoder
-        self.fixed_data = self.precompute(embeddings, state.obs)
+        self.fixed_data = self.precompute(state.obs)
 
         # Iterate until each environment from the batch reaches a terminal state
+        hidden = None
         while not done:
+            
+            embeddings, hidden = self.encoder(state, hidden)
 
             # Predict actions and (log) probabilities for current state
-            action, path, log_prob, state = self.step(state)
+            action, path, log_prob, hidden, state = self.step(state, embeddings, hidden)
 
             # Get reward and update state based on the action predicted
             state = state.step(action, path=path[..., 1:])
@@ -176,7 +253,7 @@ class NaviFormerTransPath(nn.Module):
             return total_reward, total_log_prob, torch.cat(actions, dim=1), success
         return total_reward, total_log_prob
 
-    def step(self, state: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+    def step(self, state: Any, embeddings: torch.Tensor, hidden: Tuple) -> Tuple[torch.Tensor, torch.Tensor, Tuple]:
         """
         Execute a step.
 
@@ -188,15 +265,15 @@ class NaviFormerTransPath(nn.Module):
         """
 
         # Transformer decoder
-        log_probs_node, selected_node, _, selected_direction, state = self.decoder(state)
+        log_probs_node, selected_node, _, selected_direction, hidden, state = self.decoder(state, embeddings, hidden)
 
         # Combine log probabilities in one tensor
         log_prob = self.select_log_probs(log_probs_node, selected_node)
 
         # Return actions and log probabilities
-        return selected_node, selected_direction, log_prob, state
+        return selected_node, selected_direction, log_prob, hidden, state
 
-    def encoder(self, state: Any) -> torch.Tensor:
+    def encoder(self, state: Any, hidden: torch.Tensor = None) -> torch.Tensor:
         """
         Encoder for the model.
 
@@ -206,67 +283,63 @@ class NaviFormerTransPath(nn.Module):
         Returns:
             torch.Tensor: Embeddings.
         """
+        batch_size = state.get_batch_size()
+        
+        # Calculate node embedding
+        node_embedding = self.get_node_embedding(state)
 
-        # Pre-trained (2-step) Transformer decoder
-        if self.two_step:
-            embeddings = self.base_route_model.encoder(state)
-            return embeddings
+        # If first iteration
+        if hidden is None:
+            
+            # Initialize hidden state of encoder and decoder LSTMs
+            h0 = c0 = torch.autograd.Variable(
+                torch.zeros(1, batch_size, self.embed_dim, out=node_embedding.data.new()),
+                requires_grad=False
+            )
+            hidden = (h0, c0)
+            
+            # Placeholder for first current node
+            current_node = self.init_node_placeholder.unsqueeze(0).repeat(batch_size, 1)
+        
+        # Rest of iterations
+        else:
+            
+            # Current node embedding is calculated from embedding of last visited node
+            current_node = torch.gather(
+                input=node_embedding,
+                dim=0,
+                index=state.prev_node.contiguous().view(1, batch_size, 1).expand(1, batch_size, *node_embedding.size()[2:])
+            ).squeeze(0)
+        
+        # Calculate context embedding
+        context = self.get_context_embedding(node_embedding)
+        
+        # Return encoded data
+        return (context, current_node), None
 
-        # Joint Transformer encoder
-        init_embed = input_embed(state, self.init_embed, self.init_embed_depot)
-        init_embed = (init_embed, state.obs) if self.combined_mha else (init_embed, )
-        h = self.embedder(*init_embed)
-        embeddings = (h[0], h[2]) if self.combined_mha else h[0]
-        return embeddings
-
-    def precompute(self, embeddings: torch.Tensor, obs: torch.Tensor | None = None) -> AttentionModelFixed:
+    def precompute(self, obs: torch.Tensor | None = None) -> Fixed:
         """
         Precompute Encoder embeddings.
 
         Args:
-            embeddings (torch.Tensor): Embeddings.
             obs (torch.Tensor or None): Obstacles information.
 
         Returns:
-            Precomputed AttentionModelFixed data.
+            Precomputed Fixed data.
         """
-
-        # Pre-trained (2-step) Transformer encoder precompute
-        if self.two_step:
-            self.base_route_model.fixed_data = self.base_route_model.precompute(embeddings, obs)
-            return self.base_route_model.fixed_data
 
         # Obstacle embeddings
         if self.num_obs[1]:
-            graph_embedding, obs_embedding = embeddings
-
-            # Project averaged obstacle embedding (across obstacles) for state embedding
-            obs_embedding_mean = self.project_obs_mean(obs_embedding.mean(1))
 
             # Create obstacle map for direction prediction
-            obs_map, obs_grid = create_obs_map(obs, self.patch_size, self.map_size)
-            obs_data = (obs_embedding_mean, obs_map, obs_grid)
+            obs_data = create_obs_map(obs, self.patch_size, self.map_size)
 
         # No obstacles
         else:
-            graph_embedding = embeddings
             obs_data = (None, None, None)
+        return Fixed(*obs_data)
 
-        # Project averaged graph embedding (across nodes) for state embedding
-        graph_embedding_mean = self.project_graph_mean(graph_embedding.mean(1))
-
-        # Project graph embedding for decoder
-        key, value, key_logit = self.project_graph(graph_embedding).chunk(3, dim=-1)
-
-        # Multiple heads required for key and value during MHA operation. Not needed for key_logit during SHA operation
-        key_val_data = (
-            make_heads(self.num_heads, key),
-            make_heads(self.num_heads, value),
-            key_logit.contiguous()
-        )
-        return AttentionModelFixed(graph_embedding, graph_embedding_mean, *key_val_data, *obs_data)
-
-    def decoder(self, state: Any) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def decoder(self, state: Any, embeddings: torch.Tensor, hidden: Tuple) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Tuple]:
         """
         Decoder for the model.
 
@@ -277,173 +350,98 @@ class NaviFormerTransPath(nn.Module):
             tuple: Log probabilities and selected indices.
         """
 
-        # Pre-trained (2-step) Transformer decoder
-        if self.two_step:
-            log_probs_node, selected_node = self.base_route_model.decoder(state)
+        # Predict log probabilities for each node
+        log_probs_node, hidden = self.predict_node(state, embeddings, hidden)
 
-        # Standard (1-step) decoding
-        else:
-
-            # Predict log probabilities for each node
-            log_probs_node = self.predict_node(state)
-
-            # Select the indices of the next nodes in the sequences, result (batch_size) long
-            selected_node = self.select_node(log_probs_node.exp(), state.get_mask_nodes())
+        # Select the indices of the next nodes in the sequences, result (batch_size) long
+        selected_node = self.select_node(log_probs_node.exp(), state.get_mask_nodes())
 
         # Predict next action (direction from current position to next node to visit)
         selected_direction, state = self.predict_direction(state, selected_node)
         log_probs_direction = 0
 
         # Return actions and log probabilities
-        return log_probs_node, selected_node, log_probs_direction, selected_direction, state
+        return log_probs_node, selected_node, log_probs_direction, selected_direction, hidden, state
+    
+    def get_node_embedding(self, state):
+        
+        # Dimensions
+        batch_size = state.get_batch_size()
+        num_regions = state.get_num_regions()
+        
+        # Get regions with depots
+        regions = state.get_regions()
+        
+        # Get regions' prizes
+        prizes = state.get_prizes()[..., None]
+        
+        # Get distance from each node to the depot
+        dist2regions = state.get_dist2regions(state.position)
+        
+        # Get max length nd substract the distance from each node to the depot. Then, normalize it by diving the result by max length
+        max_length = (state.get_remaining_length()[..., None] - dist2regions)[..., None]
+        max_length = max_length / state.max_length[:, None, None].expand(*max_length.shape)
 
-    def predict_node(self, state: Any, normalize: bool = True):
+        # Concatenate spatial info (loc), prize info (prize) and temporal info (max_length)
+        data = torch.cat((regions, prizes, max_length), dim=-1)
+
+        # Apply node embedding
+        node_embedding = torch.mm(
+            data.transpose(0, 1).contiguous().view(-1, self.node_dim),
+            self.node_embed
+        ).view(num_regions, batch_size, -1)
+        return node_embedding
+    
+    def get_context_embedding(self, node_embedding):
+        
+        # Dimensions
+        num_regions, batch_size, embed_dim = node_embedding.shape
+        node_embedding = node_embedding.view(-1, embed_dim)
+        
+        # GNN
+        context = self.r1 * self.W1(node_embedding) + (1 - self.r1) * torch.nn.functional.relu(self.agg_1(node_embedding))
+        context = self.r2 * self.W2(context) + (1 - self.r2) * torch.nn.functional.relu(self.agg_2(context))
+        context = self.r3 * self.W3(context) + (1 - self.r3) * torch.nn.functional.relu(self.agg_3(context))
+        return context.view(num_regions, batch_size, -1)  # output: (sourceL x batch_size x embedding_dim)
+
+    def predict_node(self, state: Any, embeddings: torch.Tensor, hidden: Tuple):
         """
         Predict log probabilities for each node.
 
         Args:
             state (Any): State information.
-            normalize (bool): Whether to normalize.
 
         Returns:
             torch.Tensor: Log probabilities.
-        """
-
-        # Compute state embedding
-        state_embedding = self.project_state(self.get_state_embedding(self.fixed_data.graph_embedding, state))
-
-        # Compute the decoder's query from the state embedding
-        query = self.fixed_data.graph_embedding_mean + self.fixed_data.obs_embedding_mean + state_embedding
-
-        # Apply MHA
+        """        
         mask = state.get_mask_nodes()
-        query_logit = self.mha_decoder(
-            query=query,
-            key=self.fixed_data.key,
-            value=self.fixed_data.value,
-            mask=mask,
-        )
-
-        # Apply SHA
-        log_probs = self.sha_decoder(
-            query_logit=query_logit,
-            key_logit=self.fixed_data.key_logit,
-            mask=mask,
-            normalize=normalize
-        )
+        context, current_node = embeddings
+        
+        # LSTM
+        h, c = self.lstm(current_node, hidden)
+        
+        # Attention model
+        for _ in range(self.num_glimpses):
+            ref, logits = self.glimpse(h, context)
+            # For the glimpses, only mask before softmax, so we have always an L1 norm 1 readout vector
+            if self.mask_glimpses:
+                logits[mask] = -math.inf
+            # [batch_size x h_dim x sourceL] * [batch_size x sourceL x 1] = [batch_size x h_dim x 1]
+            h = torch.bmm(ref, self.softmax(logits).unsqueeze(2)).squeeze(2)
+        _, logits = self.pointer(h, context)  # query = h, ref = context
+        
+        # Masking before softmax makes probs sum to one
+        if self.mask_logits:
+            logits[mask] = -math.inf
+        
+        # Calculate log_softmax for better numerical stability
+        log_probs = torch.log_softmax(logits, dim=1)
+        if not self.mask_logits:
+            log_probs[mask] = -math.inf
 
         # Return log probabilities
-        return log_probs
-
-    @staticmethod
-    def get_state_embedding(embeddings: torch.Tensor, state: Any) -> torch.Tensor:
-        """
-        Get state embedding.
-
-        Args:
-            embeddings (torch.Tensor): Embeddings.
-            state (Any): State information.
-
-        Returns:
-            torch.Tensor: State embedding.
-        """
-
-        # Get current node index and expand it to (B x 1 x H) to allow gathering from embedding (B x N x H)
-        current_node = state.prev_node.contiguous()[:, None, None].expand(-1, 1, embeddings.size(-1))
-
-        # Get embedding of current node
-        last_node_embed = torch.gather(input=embeddings, dim=1, index=current_node)[:, 0]
-
-        # Return context: (embedding of last node, remaining time/length, current position, distance to obstacles)
-        return torch.cat((last_node_embed, state.length[..., None], state.position, state.get_dist2obs()), dim=-1)
-
-    def mha_decoder(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, mask: torch.Tensor) -> \
-            torch.Tensor:
-        """
-        Multi-Head Attention (MHA) mechanism.
-
-        Args:
-            query (torch.Tensor): Query.
-            key (torch.Tensor): Key.
-            value (torch.Tensor): Value.
-            mask (torch.Tensor): Mask.
-
-        Returns:
-            torch.Tensor: MHA output.
-        """
-
-        # Dimensions
-        batch_size, embed_dim = query.size()
-        key_size = value_size = embed_dim // self.num_heads
-
-        # Rearrange query dimensions: (num_heads, batch_size, 1, key_size)
-        query = query.view(batch_size, self.num_heads, 1, key_size).permute(1, 0, 2, 3)
-
-        # Transpose key: (num_heads, batch_size, key_size, num_nodes)
-        key = key.transpose(-2, -1)
-
-        # Batch matrix multiplication to compute compatibilities: (num_heads, batch_size, 1, num_nodes)
-        compatibility = torch.matmul(query, key) / torch.sqrt(torch.tensor(embed_dim))
-
-        # Ban nodes prohibited by the mask
-        compatibility[mask[None, :, None].expand_as(compatibility)] = -math.inf
-
-        # Apply softmax
-        compatibility = torch.softmax(compatibility, dim=-1)
-
-        # Batch matrix multiplication with value to compute output: (num_heads, batch_size, 1, value_size)
-        output = torch.matmul(compatibility, value)
-
-        # Project to get glimpse/updated context node embedding: (batch_size, 1, embed_dim)
-        return self.project_mha(
-            output.permute(1, 2, 0, 3).contiguous().view(-1, 1, self.num_heads * value_size)
-        )
-
-    def sha_decoder(self,
-                    query_logit: torch.Tensor,
-                    key_logit: torch.Tensor,
-                    mask: torch.Tensor,
-                    normalize: bool = True) -> torch.Tensor:
-        """
-        Single-Head Attention (SHA) mechanism.
-
-        Args:
-            query_logit (torch.Tensor): Logit for query.
-            key_logit (torch.Tensor): Logit for key.
-            mask (torch.Tensor): Mask.
-            normalize (bool): Whether to normalize.
-
-        Returns:
-            torch.Tensor: Log probabilities.
-        """
-
-        # Embedding dimension
-        embed_dim = query_logit.size(-1)
-
-        # Transpose key
-        key_logit = key_logit.transpose(-2, -1)
-
-        # Batch matrix multiplication to compute logits: (batch_size, 1, num_nodes) -> logits = 'compatibility'
-        logits = torch.matmul(query_logit, key_logit) / torch.sqrt(torch.tensor(embed_dim))
-
-        # Remove extra dimension of size 1
-        logits = logits.squeeze(dim=1)
-
-        # Clip the logits (logits are non-normalized probabilities)
-        if self.tanh_clipping > 0:
-            logits = torch.tanh(logits) * self.tanh_clipping
-
-        # Apply the mask to the logits
-        logits[mask] = -math.inf
-
-        # Normalize the logits (with log_softmax) to get log probabilities
-        if normalize:
-            log_probs = torch.log_softmax(logits / self.temp, dim=-1)
-
-        # Check log_probs are not NaN and return them
-        assert not torch.isnan(log_probs).any(), "NaNs found in logits"
-        return log_probs
-
+        return log_probs, (h, c)
+    
     def select_node(self, probs: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """
         ArgMax or sample from probabilities to select next node.

@@ -58,8 +58,7 @@ def main(opts):
     device = torch.device("cuda" if opts.use_cuda else "cpu")
 
     # Load model
-    model, args = load_model_eval(opts.model, decode=opts.decode_strategy, temp=opts.softmax_temp)
-    model.to(device)
+    model, args = load_model_eval(opts.model, decode=opts.decode_strategy, temp=opts.softmax_temp, device=device)
     model_name = args['fancy_name']
     problem_name = args['problem']
     num_dirs = args['num_dirs']

@@ -20,8 +20,10 @@ MODELS = {
         'gpn2step': GPN2Step,
         'pn_a_star': PNAStar,
         'pn_na_star': PNNAStar,
+        'pn_transpath': PNTransPath,
         'gpn_a_star': GPNAStar,
         'gpn_na_star': GPNNAStar,
+        'gpn_transpath': GPNTransPath,
         'naviformer_a_star': NaviFormerAStar,
         'naviformer_na_star': NaviFormerNAStar,
         'naviformer_transpath': NaviFormerTransPath,
@@ -34,8 +36,10 @@ FANCY_NAME = {
     'gpn2step': 'GPN2Step',
     'pn_a_star': 'PNAStar',
     'pn_na_star': 'PNNAStar',
+    'pn_transpath': 'PNTransPath',
     'gpn_a_star': 'GPNAStar',
     'gpn_na_star': 'GPNNAStar',
+    'gpn_transpath': 'GPNTransPath',
     'naviformer_a_star': 'NaviFormerAStar',
     'naviformer_na_star': 'NaviFormerNAStar',
     'naviformer_transpath': 'NaviFormerTransPath',
@@ -76,6 +80,7 @@ def load_model_train(opts: argparse.Namespace) -> Tuple[torch.nn.Module, dict, i
         two_step=two_step,
         num_dirs=opts.num_dirs,
         maps=opts.maps,
+        device=opts.device,
     ).to(opts.device)
 
     # Multi-GPU
@@ -101,6 +106,7 @@ def load_model_eval(path: str,
                     epoch: int = None,
                     decode: str = 'greedy',
                     temp: float | None = None,
+                    device: str = 'cpu',
                     kwargs=None) -> Tuple[torch.nn.Module, dict]:
     """
     Loads a model for evaluation based on specified options.
@@ -144,6 +150,7 @@ def load_model_eval(path: str,
         num_dirs=args.get('num_dirs', 4),
         maps=args.get('maps', 'local'),
         two_step=two_step,
+        device=device,
         **kwargs
     )
 
@@ -158,4 +165,5 @@ def load_model_eval(path: str,
     # Put in eval mode
     model.eval()
     model.set_decode_type(decode, temp=temp)
+    model.to(device)
     return model, args

@@ -18,10 +18,10 @@ def load_transpath_models(weights_dir='tmp/transpath/weights', device='cpu'):
 
     # Initialize planners
     planners = {
-        'cf': DifferentiableDiagAstar(mode='k'),
-        'focal': DifferentiableDiagAstar(mode='f', f_w=100),
-        'wastar': DifferentiableDiagAstar(mode='default', h_w=2),
-        'astar': DifferentiableDiagAstar(mode='default', h_w=1)
+        'cf': DifferentiableDiagAstar(mode='k').to(device),
+        'focal': DifferentiableDiagAstar(mode='f', f_w=100).to(device),
+        'wastar': DifferentiableDiagAstar(mode='default', h_w=2).to(device),
+        'astar': DifferentiableDiagAstar(mode='default', h_w=1).to(device)
     }
 
     return model_cf, model_focal, planners
@@ -62,13 +62,13 @@ def coords_to_mask(coords, height, width, device='cpu'):
     mask[batch_indices, 0, coords[:, 0], coords[:, 1]] = 1.0
     return mask
 
-def plan_path(map_design, start, goal, model_cf, model_focal, planners, method='cf', device='cpu'):
+def plan_path(map_design, start, goal, model_cf, model_focal, planners, method='cf'):
     """
     map_design: (1, 1, H, W) torch.Tensor, 1 = free, 0 = obstacle
     start, goal: (1, 2) torch.LongTensor
     method: 'cf', 'focal', 'wastar', 'astar'
     """
-
+    device = map_design.device
     B, C, H, W = map_design.shape
     assert C == 1, "Map must have shape (B, 1, H, W)"
 
@@ -106,7 +106,7 @@ def plan_path(map_design, start, goal, model_cf, model_focal, planners, method='
             (map_design == 1).float()
         )
 
-    return path_output.paths[0]  # (H, W) binary mask of path
+    return path_output.paths.squeeze(dim=1)  # (B, H, W) binary mask of path
 
 def plot_path_with_annotations(path_mask, map_design, start, goal, title="Planned Path"):
     """

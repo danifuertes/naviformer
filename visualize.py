@@ -162,8 +162,7 @@ def compute_network(
     """
 
     # Load model (Transformer, PN, GPN) for evaluation on the chosen device
-    model, args = load_model_eval(opts.model)
-    model.to(device)
+    model, args = load_model_eval(opts.model, device=device)
     model_name = args['fancy_name']
 
     # Inputs to device
