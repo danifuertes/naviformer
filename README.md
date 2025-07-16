@@ -2,10 +2,11 @@
 [![](images/python.svg)](https://www.python.org)
 [![](images/framework.svg)](https://pytorch.org)
 [![](images/license.svg)](LICENSE)
+[![](images/iros.svg)](https://www.iros25.org)
 
 This repository is the official implementation of the following paper:
 
-> "NaviFormer: A Deep Reinforcement Learning Transformer-like Model to Holistically Solve the Navigation Problem", under review.
+_NaviFormer: A Deep Reinforcement Learning Transformer-like Model to Holistically Solve the Navigation Problem, accepted in IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2025._
 
 If you find this repository useful for your work, please cite our paper:
 
