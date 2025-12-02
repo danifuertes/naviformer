@@ -4,11 +4,7 @@
 [![](images/license.svg)](LICENSE)
 [![](images/iros.svg)](https://www.iros25.org)
 
-This repository is the official implementation of the following paper:
-
-_NaviFormer: A Deep Reinforcement Learning Transformer-like Model to Holistically Solve the Navigation Problem, accepted in IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2025._
-
-If you find this repository useful for your work, please cite our paper:
+This repository is the official implementation of [this paper](https://doi.org/10.1109/IROS60139.2025.11246746). If you find this repository useful for your work, please cite our paper:
 
 ```
 @INPROCEEDINGS{11246746,
