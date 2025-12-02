@@ -11,7 +11,16 @@ _NaviFormer: A Deep Reinforcement Learning Transformer-like Model to Holisticall
 If you find this repository useful for your work, please cite our paper:
 
 ```
-<Citation> - (Under review)
+@INPROCEEDINGS{11246746,
+  author={Fuertes, Daniel and Cavallaro, Andrea and Del-Blanco, Carlos R. and Jaureguizar, Fernando and García, Narciso},
+  title={NaviFormer: A Deep Reinforcement Learning Transformer-like Model to Holistically Solve the Navigation Problem}, 
+  booktitle={2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)}, 
+  year={2025},
+  volume={},
+  number={},
+  pages={15430-15437},
+  doi={10.1109/IROS60139.2025.11246746}
+}
 ```
 
 ## Installation
@@ -34,7 +43,7 @@ cd ../../..
 ```
 
 ## Reproducibility
-To reproduce the results of the paper, please download and unzip the datasets and pretrained weights from [this anonymous link](https://drive.google.com/drive/folders/1OVHFOre7uWWv21HmNwd64w1kLM2uESrY?usp=sharing). Place the datasets' folder (`data`) and the pretrained weights' folder (`pretrained`) in the working directory and run the following scripts:
+To reproduce the results of the paper, please download and unzip the datasets and pretrained weights from [this link](https://upm365-my.sharepoint.com/:u:/g/personal/d_fcoiras_upm_es/Ee-KvN7hh1dEpuIQ1-bY8S4BWGiSH3suM_o6PyL_sz3fwQ?e=u9vzZF). Place the datasets' folder (`data`) and the pretrained weights' folder (`pretrained`) in the working directory and run the following scripts:
 
 ```bash
 source replicate_results.sh
